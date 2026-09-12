@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.ComponentModel;
 using System.Collections.Concurrent;
@@ -1483,7 +1484,13 @@ internal sealed class SamsungBrightnessSession : IAsyncDisposable
     private ClientWebSocket? _socket;
     private int _initialized;
     private ControlMode _mode;
-    private bool _preferRemoteFallback;
+
+    [DllImport("iphlpapi.dll", ExactSpelling = true)]
+    private static extern int SendARP(
+        uint destinationAddress,
+        uint sourceAddress,
+        byte[] physicalAddress,
+        ref int physicalAddressLength);
 
     public SamsungBrightnessSession(
         string host,
@@ -1521,6 +1528,16 @@ internal sealed class SamsungBrightnessSession : IAsyncDisposable
             return;
         }
 
+        // A Samsung display can continue answering ICMP while its remote-control
+        // and developer services are asleep. Wake the network stack before any
+        // launch attempt so the installed bridge always gets first refusal.
+        await WakeDisplayNetworkAsync();
+        if (_bridge.IsConnected)
+        {
+            _mode = ControlMode.Bridge;
+            return;
+        }
+
         Report(
             "正在让显示器打开 HDMI 亮度桥接器…",
             $"MS_APPLICATION_START — {BridgeAppId}");
@@ -1528,12 +1545,6 @@ internal sealed class SamsungBrightnessSession : IAsyncDisposable
         if (string.IsNullOrWhiteSpace(_token))
             throw new InvalidOperationException(
                 "未保存有效的电视遥控权限。普通点击不会申请权限；请右键托盘图标并选择“重新配对电视遥控权限…”。");
-
-        if (_preferRemoteFallback)
-        {
-            await OpenRemoteFallbackAsync();
-            return;
-        }
 
         Report(
             "正在尝试兼容启动方式…",
@@ -1584,7 +1595,6 @@ internal sealed class SamsungBrightnessSession : IAsyncDisposable
             AppDiagnostics.Log($"bridge compatibility launch failed; {error.GetType().Name}: {error.Message}");
         }
 
-        _preferRemoteFallback = true;
         Report(
             "未检测到开发者桥接器，正在切换遥控模式…",
             "KEY_MENU — 模拟电视遥控器");
@@ -1626,6 +1636,169 @@ internal sealed class SamsungBrightnessSession : IAsyncDisposable
             AvailabilityChanged?.Invoke(false);
             throw;
         }
+    }
+
+    private async Task WakeDisplayNetworkAsync()
+    {
+        Report(
+            "正在唤醒显示器与桥接服务…",
+            "WAKE_ON_LAN — 优先恢复桥接器");
+
+        try
+        {
+            IPAddress? address = (await Dns.GetHostAddressesAsync(_host))
+                .FirstOrDefault(candidate => candidate.AddressFamily == AddressFamily.InterNetwork);
+            if (address is null)
+                return;
+
+            PhysicalAddress? physicalAddress = await ResolvePhysicalAddressAsync(address);
+            if (physicalAddress is not null)
+                LocalState.SavePhysicalAddress(physicalAddress);
+            else
+                physicalAddress = LocalState.TryLoadPhysicalAddress();
+
+            if (physicalAddress is not null)
+                await SendWakePacketAsync(address, physicalAddress);
+            else
+                AppDiagnostics.Log($"wake-on-LAN skipped; MAC address for {_host} is unavailable");
+
+            // Give the TV network service a short head start. This returns
+            // immediately when it was already awake.
+            await WaitForRemoteServiceAsync(TimeSpan.FromSeconds(12));
+        }
+        catch (Exception error)
+        {
+            // Wake-on-LAN is an optimization. The normal bridge launch below
+            // remains authoritative and may still succeed.
+            AppDiagnostics.Log($"display wake failed; {error.GetType().Name}: {error.Message}");
+        }
+    }
+
+    private static async Task<PhysicalAddress?> ResolvePhysicalAddressAsync(IPAddress address)
+    {
+        PhysicalAddress? result = TryResolvePhysicalAddress(address);
+        if (result is not null)
+            return result;
+
+        try
+        {
+            using var ping = new Ping();
+            await ping.SendPingAsync(address, 600);
+        }
+        catch
+        {
+            // A sleeping display may not answer; the ARP cache can still have
+            // enough information for the second attempt.
+        }
+        return TryResolvePhysicalAddress(address);
+    }
+
+    private async Task CachePhysicalAddressAsync()
+    {
+        try
+        {
+            IPAddress? address = (await Dns.GetHostAddressesAsync(_host))
+                .FirstOrDefault(candidate => candidate.AddressFamily == AddressFamily.InterNetwork);
+            if (address is null)
+                return;
+            PhysicalAddress? physicalAddress = await ResolvePhysicalAddressAsync(address);
+            if (physicalAddress is not null)
+                LocalState.SavePhysicalAddress(physicalAddress);
+        }
+        catch (Exception error)
+        {
+            AppDiagnostics.Log($"could not cache display MAC address; {error.GetType().Name}: {error.Message}");
+        }
+    }
+
+    private static PhysicalAddress? TryResolvePhysicalAddress(IPAddress address)
+    {
+        byte[] mac = new byte[8];
+        int length = mac.Length;
+        uint destination = BitConverter.ToUInt32(address.GetAddressBytes(), 0);
+        if (SendARP(destination, 0, mac, ref length) != 0 || length != 6)
+            return null;
+
+        byte[] bytes = mac[..length];
+        return bytes.All(value => value == 0) ? null : new PhysicalAddress(bytes);
+    }
+
+    private static async Task SendWakePacketAsync(
+        IPAddress target,
+        PhysicalAddress physicalAddress)
+    {
+        byte[] mac = physicalAddress.GetAddressBytes();
+        if (mac.Length != 6)
+            return;
+
+        byte[] packet = new byte[6 + (16 * mac.Length)];
+        Array.Fill(packet, (byte)0xFF, 0, 6);
+        for (int index = 6; index < packet.Length; index += mac.Length)
+            Buffer.BlockCopy(mac, 0, packet, index, mac.Length);
+
+        var destinations = new HashSet<IPAddress> { IPAddress.Broadcast, target };
+        foreach (NetworkInterface adapter in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (adapter.OperationalStatus != OperationalStatus.Up)
+                continue;
+            foreach (UnicastIPAddressInformation item in adapter.GetIPProperties().UnicastAddresses)
+            {
+                if (item.Address.AddressFamily != AddressFamily.InterNetwork ||
+                    item.IPv4Mask is null ||
+                    !IsSameSubnet(item.Address, target, item.IPv4Mask))
+                    continue;
+                destinations.Add(GetBroadcastAddress(item.Address, item.IPv4Mask));
+            }
+        }
+
+        using var udp = new UdpClient(AddressFamily.InterNetwork) { EnableBroadcast = true };
+        foreach (IPAddress destination in destinations)
+            await udp.SendAsync(packet, new IPEndPoint(destination, 9));
+    }
+
+    private async Task<bool> WaitForRemoteServiceAsync(TimeSpan timeout)
+    {
+        DateTime deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (_bridge.IsConnected)
+                return true;
+            try
+            {
+                using var client = new TcpClient(AddressFamily.InterNetwork);
+                using var attempt = new CancellationTokenSource(TimeSpan.FromMilliseconds(700));
+                await client.ConnectAsync(_host, 8002, attempt.Token);
+                return true;
+            }
+            catch
+            {
+                await Task.Delay(350);
+            }
+        }
+        return _bridge.IsConnected;
+    }
+
+    private static bool IsSameSubnet(IPAddress left, IPAddress right, IPAddress mask)
+    {
+        byte[] leftBytes = left.GetAddressBytes();
+        byte[] rightBytes = right.GetAddressBytes();
+        byte[] maskBytes = mask.GetAddressBytes();
+        for (int index = 0; index < leftBytes.Length; index++)
+        {
+            if ((leftBytes[index] & maskBytes[index]) != (rightBytes[index] & maskBytes[index]))
+                return false;
+        }
+        return true;
+    }
+
+    private static IPAddress GetBroadcastAddress(IPAddress address, IPAddress mask)
+    {
+        byte[] addressBytes = address.GetAddressBytes();
+        byte[] maskBytes = mask.GetAddressBytes();
+        byte[] broadcast = new byte[addressBytes.Length];
+        for (int index = 0; index < broadcast.Length; index++)
+            broadcast[index] = (byte)(addressBytes[index] | ~maskBytes[index]);
+        return new IPAddress(broadcast);
     }
 
     public async Task PairRemoteAsync()
@@ -2001,7 +2174,7 @@ internal sealed class SamsungBrightnessSession : IAsyncDisposable
     {
         if (connected)
         {
-            _preferRemoteFallback = false;
+            _ = CachePhysicalAddressAsync();
             if (_mode == ControlMode.None)
                 _mode = ControlMode.Bridge;
         }
@@ -2714,6 +2887,7 @@ internal static class LocalState
     private static readonly string TokenPath = Path.Combine(DirectoryPath, "token.dat");
     private static readonly string BrightnessPath = Path.Combine(DirectoryPath, "brightness.txt");
     private static readonly string HostPath = Path.Combine(DirectoryPath, "host.txt");
+    private static readonly string PhysicalAddressPath = Path.Combine(DirectoryPath, "mac.txt");
 
     public static string? TryLoadHost()
     {
@@ -2727,6 +2901,29 @@ internal static class LocalState
     {
         Directory.CreateDirectory(DirectoryPath);
         File.WriteAllText(HostPath, host.Trim());
+    }
+
+    public static PhysicalAddress? TryLoadPhysicalAddress()
+    {
+        try
+        {
+            if (!File.Exists(PhysicalAddressPath))
+                return null;
+            var address = PhysicalAddress.Parse(File.ReadAllText(PhysicalAddressPath).Trim());
+            return address.GetAddressBytes().Length == 6 ? address : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static void SavePhysicalAddress(PhysicalAddress address)
+    {
+        if (address.GetAddressBytes().Length != 6)
+            return;
+        Directory.CreateDirectory(DirectoryPath);
+        File.WriteAllText(PhysicalAddressPath, address.ToString());
     }
 
     public static string? TryLoadToken()
