@@ -28,6 +28,8 @@ Verified on Samsung Smart Monitor M7 / M70B (`LS43BM702UNXZA`, 2022 Tizen). Othe
 2. If required, right-click the tray icon, select **Pair TV remote permission…**, and approve the request on the display.
 3. Left-click the tray icon to adjust brightness.
 
+Start-at-login is enabled from the first-run guide and can be changed from the tray icon's right-click menu. It starts silently in the background.
+
 With the companion Tizen app installed, brightness is changed directly without covering HDMI. Without Developer Mode, the app automatically falls back to simulated remote-control keys; the TV settings menu appears briefly while adjusting.
 
 <details>

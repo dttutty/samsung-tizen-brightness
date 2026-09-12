@@ -9,6 +9,7 @@ using System.Security.Cryptography;
 using System.Management;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Win32;
 
 namespace SamsungTizenBrightness;
 
@@ -53,13 +54,20 @@ internal static class Program
             }
 
             string token = LocalState.TryLoadToken() ?? string.Empty;
-            bool openAtStartup = args.Any(arg =>
+            bool openOnLaunch = args.Any(arg =>
                 string.Equals(arg, "--open", StringComparison.OrdinalIgnoreCase));
+            bool startedWithWindows = args.Any(arg =>
+                string.Equals(arg, "--startup", StringComparison.OrdinalIgnoreCase));
             using var openSignal = new EventWaitHandle(
                 false,
                 EventResetMode.AutoReset,
                 OpenSignalName);
-            Application.Run(new TrayContext(host, token, openAtStartup, openSignal));
+            Application.Run(new TrayContext(
+                host,
+                token,
+                openOnLaunch,
+                startedWithWindows,
+                openSignal));
         }
         catch (Exception ex)
         {
@@ -84,7 +92,7 @@ internal static class ConnectionSetupPrompt
         using var dialog = new Form
         {
             Text = "Samsung Tizen 亮度 · 连接设置",
-            ClientSize = new Size(620, 500),
+            ClientSize = new Size(620, 540),
             FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false,
             MinimizeBox = false,
@@ -204,22 +212,30 @@ internal static class ConnectionSetupPrompt
             Size = new Size(570, 42),
             Location = new Point(24, 411)
         };
+        var startWithWindows = new CheckBox
+        {
+            Text = "随 Windows 登录自动启动（仅进入托盘后台）",
+            AutoSize = true,
+            Checked = currentHost is null || StartupRegistration.IsEnabled(),
+            Location = new Point(24, 452)
+        };
         var ok = new Button
         {
             Text = "保存并继续",
             DialogResult = DialogResult.OK,
-            Location = new Point(388, 455),
+            Location = new Point(388, 495),
             Size = new Size(104, 32)
         };
         var cancel = new Button
         {
             Text = "取消",
             DialogResult = DialogResult.Cancel,
-            Location = new Point(500, 455),
+            Location = new Point(500, 495),
             Size = new Size(96, 32)
         };
         dialog.Controls.AddRange(
-            [title, intro, hostLabel, input, developerGroup, fallbackNote, ok, cancel]);
+            [title, intro, hostLabel, input, developerGroup, fallbackNote,
+             startWithWindows, ok, cancel]);
         dialog.AcceptButton = ok;
         dialog.CancelButton = cancel;
 
@@ -227,7 +243,21 @@ internal static class ConnectionSetupPrompt
         {
             string host = input.Text.Trim();
             if (IPAddress.TryParse(host, out _) || Uri.CheckHostName(host) != UriHostNameType.Unknown)
+            {
+                try
+                {
+                    StartupRegistration.SetEnabled(startWithWindows.Checked);
+                }
+                catch (Exception error) when (error is UnauthorizedAccessException or IOException)
+                {
+                    MessageBox.Show(
+                        $"显示器地址会正常保存，但无法修改 Windows 启动项：\n{error.Message}",
+                        dialog.Text,
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                }
                 return host;
+            }
             MessageBox.Show("请输入有效的 IP 地址或主机名。", "Samsung Tizen 亮度", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
         return null;
@@ -268,12 +298,57 @@ internal static class ConnectionSetupPrompt
     }
 }
 
+internal static class StartupRegistration
+{
+    private const string ValueName = "SamsungTizenBrightness";
+    private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string ApprovalKeyPath =
+        @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+
+    public static bool IsEnabled()
+    {
+        using RegistryKey? runKey = Registry.CurrentUser.OpenSubKey(RunKeyPath);
+        string? command = runKey?.GetValue(ValueName) as string;
+        if (!string.Equals(command, BuildCommand(), StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        using RegistryKey? approvalKey = Registry.CurrentUser.OpenSubKey(ApprovalKeyPath);
+        if (approvalKey?.GetValue(ValueName) is byte[] approval &&
+            approval.Length > 0 && approval[0] == 3)
+            return false;
+        return true;
+    }
+
+    public static void SetEnabled(bool enabled)
+    {
+        using RegistryKey runKey = Registry.CurrentUser.CreateSubKey(
+            RunKeyPath,
+            writable: true);
+        if (enabled)
+        {
+            runKey.SetValue(ValueName, BuildCommand(), RegistryValueKind.String);
+            using RegistryKey approvalKey = Registry.CurrentUser.CreateSubKey(
+                ApprovalKeyPath,
+                writable: true);
+            approvalKey.DeleteValue(ValueName, throwOnMissingValue: false);
+        }
+        else
+        {
+            runKey.DeleteValue(ValueName, throwOnMissingValue: false);
+        }
+    }
+
+    private static string BuildCommand()
+        => $"\"{Application.ExecutablePath}\" --startup";
+}
+
 internal sealed class TrayContext : ApplicationContext
 {
     private readonly string _host;
     private readonly SamsungBrightnessSession _session;
     private readonly MonitorControlPopup _popup;
     private readonly NotifyIcon _trayIcon;
+    private readonly ToolStripMenuItem _startWithWindowsItem;
     private readonly Icon _appIcon;
     private readonly Icon _offlineIcon;
     private readonly MonitorConnectivity _connectivity;
@@ -289,7 +364,8 @@ internal sealed class TrayContext : ApplicationContext
     public TrayContext(
         string host,
         string token,
-        bool openAtStartup,
+        bool openOnLaunch,
+        bool startedWithWindows,
         EventWaitHandle openSignal)
     {
         _host = host;
@@ -305,6 +381,12 @@ internal sealed class TrayContext : ApplicationContext
         var menu = new ContextMenuStrip();
         menu.Items.Add("打开亮度调节", null, (_, _) => _popup.OpenNearCursor());
         menu.Items.Add("连接与开发者模式设置…", null, (_, _) => ShowConnectionSetup());
+        _startWithWindowsItem = new ToolStripMenuItem("随 Windows 登录启动")
+        {
+            Checked = StartupRegistration.IsEnabled()
+        };
+        _startWithWindowsItem.Click += (_, _) => ToggleStartWithWindows();
+        menu.Items.Add(_startWithWindowsItem);
         menu.Items.Add("恢复 HDMI 画面", null, async (_, _) => await RecoverDisplayAsync());
         menu.Items.Add("重新配对电视遥控权限…", null, async (_, _) => await PairRemoteAsync());
         menu.Items.Add(new ToolStripSeparator());
@@ -323,9 +405,12 @@ internal sealed class TrayContext : ApplicationContext
                 _popup.OpenNearCursor();
         };
 
-        _trayIcon.BalloonTipTitle = "Samsung Tizen 亮度已启动";
-        _trayIcon.BalloonTipText = "左键单击电视图标即可打开控制面板。";
-        _trayIcon.ShowBalloonTip(3000);
+        if (!startedWithWindows)
+        {
+            _trayIcon.BalloonTipTitle = "Samsung Tizen 亮度已启动";
+            _trayIcon.BalloonTipText = "左键单击电视图标即可打开控制面板。";
+            _trayIcon.ShowBalloonTip(3000);
+        }
         _ = _popup.Handle;
         _openSignalTimer.Interval = 100;
         _openSignalTimer.Tick += (_, _) =>
@@ -342,7 +427,7 @@ internal sealed class TrayContext : ApplicationContext
         _bridge.Start();
         _connectivity.Start();
         _hdmiPresence.Start();
-        if (openAtStartup)
+        if (openOnLaunch)
         {
             EventHandler? openWhenReady = null;
             openWhenReady = (_, _) =>
@@ -442,6 +527,7 @@ internal sealed class TrayContext : ApplicationContext
     private void ShowConnectionSetup()
     {
         string? updatedHost = ConnectionSetupPrompt.Show(_host);
+        _startWithWindowsItem.Checked = StartupRegistration.IsEnabled();
         if (updatedHost is null ||
             updatedHost.Equals(_host, StringComparison.OrdinalIgnoreCase))
             return;
@@ -452,6 +538,24 @@ internal sealed class TrayContext : ApplicationContext
             "Samsung Tizen 亮度",
             MessageBoxButtons.OK,
             MessageBoxIcon.Information);
+    }
+
+    private void ToggleStartWithWindows()
+    {
+        bool enable = !_startWithWindowsItem.Checked;
+        try
+        {
+            StartupRegistration.SetEnabled(enable);
+            _startWithWindowsItem.Checked = enable;
+        }
+        catch (Exception error) when (error is UnauthorizedAccessException or IOException)
+        {
+            MessageBox.Show(
+                $"无法修改 Windows 启动项：\n{error.Message}",
+                "Samsung Tizen 亮度",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
     }
 
     private async Task ExitAsync()
