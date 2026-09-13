@@ -10,6 +10,7 @@
   var socket = null;
   var reconnectTimer = null;
   var connectionWatchdog = null;
+  var disconnectExitTimer = null;
   var videoWindowTimer = null;
   var pendingValue = null;
   var pendingId = null;
@@ -18,6 +19,7 @@
   var videoSourceMap = {};
   var videoSourceOptions = [];
   var sourceChangeBusy = false;
+  var closing = false;
   var statusElement = document.getElementById('status');
 
   // Protocol 2 never accepts a method name from the network. Every setting is
@@ -478,7 +480,7 @@
       op: 'capabilities',
       id: id || null,
       protocol: 2,
-      bridgeVersion: '2.2.6',
+      bridgeVersion: '2.2.8',
       settings: capabilities,
       actions: [recoverDisplayCapability()]
     });
@@ -651,6 +653,7 @@
   }
 
   function connectToPc() {
+    if (closing) return;
     clearTimeout(reconnectTimer);
     if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
       return;
@@ -658,6 +661,8 @@
     try {
       socket = new WebSocket(PC_SOCKET);
       socket.onopen = function () {
+        clearTimeout(disconnectExitTimer);
+        disconnectExitTimer = null;
         send({
           op: 'hello',
           role: 'tv',
@@ -674,11 +679,23 @@
       };
       socket.onclose = function () {
         socket = null;
+        if (closing) return;
+        scheduleDisconnectExit();
         reconnectTimer = setTimeout(connectToPc, 2000);
       };
     } catch (error) {
+      scheduleDisconnectExit();
       reconnectTimer = setTimeout(connectToPc, 2000);
     }
+  }
+
+  function scheduleDisconnectExit() {
+    if (closing || disconnectExitTimer !== null) return;
+    disconnectExitTimer = setTimeout(function () {
+      disconnectExitTimer = null;
+      setStatus('电脑连接已断开，正在退出桥接器以恢复电视自动关机。');
+      closeApp();
+    }, 30000);
   }
 
   function showWindow() {
@@ -730,8 +747,11 @@
   }
 
   function closeApp() {
+    if (closing) return;
+    closing = true;
     clearTimeout(reconnectTimer);
     clearTimeout(videoWindowTimer);
+    clearTimeout(disconnectExitTimer);
     clearInterval(connectionWatchdog);
     if (applyTimer !== null) clearTimeout(applyTimer);
     if (socket) {

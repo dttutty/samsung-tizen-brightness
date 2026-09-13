@@ -32,6 +32,8 @@ Start-at-login is enabled from the first-run guide and can be changed from the t
 
 With the companion Tizen app installed, the controller wakes the display network and bridge first, then changes brightness directly without covering HDMI. When Tizen Studio is installed, it can also recover the bridge through a hidden SDB process without keeping Device Manager open. Without Developer Mode, it automatically falls back to simulated remote-control keys; the TV settings menu appears briefly while adjusting.
 
+On Windows sleep, shutdown, or HDMI disconnect, the controller exits the TV bridge so the display can resume its normal HDMI no-signal auto-power-off behavior. The bridge is restored after resume or reconnection. If the PC loses power unexpectedly, the TV bridge exits itself after 30 seconds without the PC connection.
+
 <details>
 <summary><strong>Optional: install the Tizen bridge (Developer Mode)</strong></summary>
 

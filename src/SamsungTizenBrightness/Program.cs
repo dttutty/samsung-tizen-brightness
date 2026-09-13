@@ -357,10 +357,15 @@ internal sealed class TrayContext : ApplicationContext
     private readonly BrightnessBridgeServer _bridge;
     private readonly EventWaitHandle _openSignal;
     private readonly System.Windows.Forms.Timer _openSignalTimer = new();
+    private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
+    private CancellationTokenSource? _hdmiDisconnectCancellation;
+    private CancellationTokenSource? _bridgeRestoreCancellation;
     private bool _exiting;
     private bool _bridgeConnected;
     private bool _hdmiConnected;
     private bool _pairing;
+    private volatile bool _suspended;
+    private volatile bool _bridgeStoppedForLifecycle;
 
     public TrayContext(
         string host,
@@ -425,6 +430,8 @@ internal sealed class TrayContext : ApplicationContext
         _openSignalTimer.Start();
         _connectivity.StatusChanged += TrayConnectivity_StatusChanged;
         _hdmiPresence.StatusChanged += HdmiPresence_StatusChanged;
+        SystemEvents.PowerModeChanged += SystemEvents_PowerModeChanged;
+        SystemEvents.SessionEnding += SystemEvents_SessionEnding;
         _bridge.Start();
         _connectivity.Start();
         _hdmiPresence.Start();
@@ -448,8 +455,187 @@ internal sealed class TrayContext : ApplicationContext
 
     private void HdmiPresence_StatusChanged(bool connected)
     {
+        if (_popup.IsHandleCreated && _popup.InvokeRequired)
+        {
+            try
+            {
+                _popup.BeginInvoke(() => HdmiPresence_StatusChanged(connected));
+            }
+            catch (InvalidOperationException)
+            {
+            }
+            return;
+        }
+
         _hdmiConnected = connected;
         UpdateTrayConnectionState();
+
+        if (_exiting)
+            return;
+
+        if (connected)
+        {
+            CancelHdmiDisconnect();
+            if (_bridgeStoppedForLifecycle && !_suspended)
+                ScheduleBridgeRestore("HDMI reconnected", TimeSpan.FromSeconds(2));
+            return;
+        }
+
+        CancelBridgeRestore();
+        CancelHdmiDisconnect();
+        _hdmiDisconnectCancellation = new CancellationTokenSource();
+        _ = StopBridgeAfterStableHdmiDisconnectAsync(_hdmiDisconnectCancellation.Token);
+    }
+
+    private async Task StopBridgeAfterStableHdmiDisconnectAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Windows briefly removes displays while changing resolution,
+            // refreshing drivers, or resuming. Only treat a sustained absence
+            // as a physical HDMI disconnect.
+            await Task.Delay(TimeSpan.FromSeconds(6), cancellationToken);
+            if (!_hdmiConnected)
+                await StopBridgeForLifecycleAsync("HDMI disconnected");
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private void SystemEvents_PowerModeChanged(object sender, PowerModeChangedEventArgs e)
+    {
+        if (_exiting)
+            return;
+
+        if (e.Mode == PowerModes.Suspend)
+        {
+            _suspended = true;
+            CancelBridgeRestore();
+            _ = StopBridgeForLifecycleAsync("Windows suspending");
+        }
+        else if (e.Mode == PowerModes.Resume)
+        {
+            _suspended = false;
+            if (_hdmiConnected)
+                ScheduleBridgeRestore("Windows resumed", TimeSpan.FromSeconds(3));
+        }
+    }
+
+    private void SystemEvents_SessionEnding(object sender, SessionEndingEventArgs e)
+    {
+        if (_exiting)
+            return;
+
+        _bridgeStoppedForLifecycle = true;
+        AppDiagnostics.Log($"bridge exit requested; Windows session ending ({e.Reason})");
+        try
+        {
+            // Shutdown/logoff offers only a short notification window. The
+            // request is normally acknowledged immediately; never delay the
+            // system transition for more than 1.5 seconds.
+            _bridge.RequestExitAsync().Wait(TimeSpan.FromMilliseconds(1500));
+        }
+        catch (Exception error)
+        {
+            AppDiagnostics.Log($"bridge exit during session ending failed; {error.Message}");
+        }
+    }
+
+    private async Task StopBridgeForLifecycleAsync(string reason)
+    {
+        _bridgeStoppedForLifecycle = true;
+        await _lifecycleGate.WaitAsync();
+        try
+        {
+            if (_exiting)
+                return;
+            AppDiagnostics.Log($"bridge exit requested; {reason}");
+            await _bridge.RequestExitAsync();
+            AppDiagnostics.Log($"bridge exit completed; {reason}");
+        }
+        catch (Exception error)
+        {
+            AppDiagnostics.Log($"bridge exit failed; {reason}; {error.GetType().Name}: {error.Message}");
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+    }
+
+    private void ScheduleBridgeRestore(string reason, TimeSpan initialDelay)
+    {
+        CancelBridgeRestore();
+        _bridgeRestoreCancellation = new CancellationTokenSource();
+        _ = RestoreBridgeAfterLifecycleAsync(
+            reason,
+            initialDelay,
+            _bridgeRestoreCancellation.Token);
+    }
+
+    private async Task RestoreBridgeAfterLifecycleAsync(
+        string reason,
+        TimeSpan initialDelay,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(initialDelay, cancellationToken);
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_exiting || _suspended || !_hdmiConnected)
+                    return;
+
+                await _lifecycleGate.WaitAsync(cancellationToken);
+                try
+                {
+                    if (_session.IsBridgeConnected)
+                    {
+                        _bridgeStoppedForLifecycle = false;
+                        return;
+                    }
+
+                    AppDiagnostics.Log($"bridge restore attempt {attempt}; {reason}");
+                    await _session.WakeBridgeAsync();
+                    if (_session.IsBridgeConnected)
+                    {
+                        _bridgeStoppedForLifecycle = false;
+                        AppDiagnostics.Log($"bridge restore succeeded; {reason}");
+                        return;
+                    }
+                }
+                catch (Exception error)
+                {
+                    AppDiagnostics.Log($"bridge restore attempt {attempt} failed; {reason}; " +
+                        $"{error.GetType().Name}: {error.Message}");
+                }
+                finally
+                {
+                    _lifecycleGate.Release();
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(8), cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private void CancelHdmiDisconnect()
+    {
+        _hdmiDisconnectCancellation?.Cancel();
+        _hdmiDisconnectCancellation?.Dispose();
+        _hdmiDisconnectCancellation = null;
+    }
+
+    private void CancelBridgeRestore()
+    {
+        _bridgeRestoreCancellation?.Cancel();
+        _bridgeRestoreCancellation?.Dispose();
+        _bridgeRestoreCancellation = null;
     }
 
     private void UpdateTrayConnectionState()
@@ -565,6 +751,10 @@ internal sealed class TrayContext : ApplicationContext
             return;
 
         _exiting = true;
+        SystemEvents.PowerModeChanged -= SystemEvents_PowerModeChanged;
+        SystemEvents.SessionEnding -= SystemEvents_SessionEnding;
+        CancelHdmiDisconnect();
+        CancelBridgeRestore();
         _openSignalTimer.Stop();
         _connectivity.StatusChanged -= TrayConnectivity_StatusChanged;
         _hdmiPresence.StatusChanged -= HdmiPresence_StatusChanged;
@@ -1720,7 +1910,11 @@ internal sealed class SamsungBrightnessSession : IAsyncDisposable
             return false;
         }
 
-        bool connected = await WaitForBridgeAsync(TimeSpan.FromSeconds(8));
+        // Some Samsung firmware reports a successful launch several seconds
+        // before TVWindow.show completes and JavaScript can open the socket.
+        // Wait through that cold-start interval instead of prematurely opening
+        // the remote-control fallback over a bridge that is still starting.
+        bool connected = await WaitForBridgeAsync(TimeSpan.FromSeconds(20));
         AppDiagnostics.Log(connected
             ? "SDB bridge recovery succeeded"
             : $"SDB command completed but bridge did not connect; {launchOutput}");
