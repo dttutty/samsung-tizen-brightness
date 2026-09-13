@@ -1538,6 +1538,15 @@ internal sealed class SamsungBrightnessSession : IAsyncDisposable
             return;
         }
 
+        // On developer machines, SDB is the most reliable way to cold-start a
+        // sideloaded Web application after the display wakes from deep standby.
+        // It runs hidden and does not require Device Manager to remain open.
+        if (await TryLaunchBridgeViaSdbAsync())
+        {
+            _mode = ControlMode.Bridge;
+            return;
+        }
+
         Report(
             "正在让显示器打开 HDMI 亮度桥接器…",
             $"MS_APPLICATION_START — {BridgeAppId}");
@@ -1671,6 +1680,123 @@ internal sealed class SamsungBrightnessSession : IAsyncDisposable
             // Wake-on-LAN is an optimization. The normal bridge launch below
             // remains authoritative and may still succeed.
             AppDiagnostics.Log($"display wake failed; {error.GetType().Name}: {error.Message}");
+        }
+    }
+
+    private async Task<bool> TryLaunchBridgeViaSdbAsync()
+    {
+        string? sdbPath = FindSdbPath();
+        if (sdbPath is null)
+            return false;
+
+        Report(
+            "正在通过开发者通道启动桥接器…",
+            "SDB EXECUTE — 自动恢复桥接器");
+
+        string serial = $"{_host}:26101";
+        (int connectCode, string connectOutput) = await RunSdbAsync(
+            sdbPath,
+            TimeSpan.FromSeconds(12),
+            "connect",
+            _host);
+        if (connectCode != 0)
+        {
+            AppDiagnostics.Log($"SDB connect failed ({connectCode}); {connectOutput}");
+            return false;
+        }
+
+        (int launchCode, string launchOutput) = await RunSdbAsync(
+            sdbPath,
+            TimeSpan.FromSeconds(12),
+            "-s",
+            serial,
+            "shell",
+            "0",
+            "execute",
+            BridgeAppId);
+        if (launchCode != 0)
+        {
+            AppDiagnostics.Log($"SDB bridge launch failed ({launchCode}); {launchOutput}");
+            return false;
+        }
+
+        bool connected = await WaitForBridgeAsync(TimeSpan.FromSeconds(8));
+        AppDiagnostics.Log(connected
+            ? "SDB bridge recovery succeeded"
+            : $"SDB command completed but bridge did not connect; {launchOutput}");
+        return connected;
+    }
+
+    private static string? FindSdbPath()
+    {
+        string systemDrive = Path.GetPathRoot(Environment.SystemDirectory) ?? @"C:\";
+        string[] candidates =
+        [
+            Path.Combine(systemDrive, "tizen-studio", "tools", "sdb.exe"),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Tizen", "tizen-studio", "tools", "sdb.exe"),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Tizen", "tizen-studio", "tools", "sdb.exe")
+        ];
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private static async Task<(int ExitCode, string Output)> RunSdbAsync(
+        string sdbPath,
+        TimeSpan timeout,
+        params string[] arguments)
+    {
+        var startInfo = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = sdbPath,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        foreach (string argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+
+        using var process = new System.Diagnostics.Process { StartInfo = startInfo };
+        try
+        {
+            if (!process.Start())
+                return (-1, "SDB process did not start");
+
+            Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
+            Task<string> errorTask = process.StandardError.ReadToEndAsync();
+            using var cancellation = new CancellationTokenSource(timeout);
+            try
+            {
+                await process.WaitForExitAsync(cancellation.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync();
+                }
+                catch
+                {
+                    // The process may have exited between the timeout and kill.
+                }
+                return (-2, "SDB command timed out");
+            }
+
+            string output = string.Join(
+                " | ",
+                new[] { await outputTask, await errorTask }
+                    .Select(value => value.Trim())
+                    .Where(value => value.Length > 0));
+            return (process.ExitCode, output);
+        }
+        catch (Exception error)
+        {
+            return (-1, $"{error.GetType().Name}: {error.Message}");
         }
     }
 

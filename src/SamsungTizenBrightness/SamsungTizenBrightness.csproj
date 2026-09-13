@@ -12,7 +12,7 @@
     <DebugSymbols>false</DebugSymbols>
     <AssemblyName>Samsung Tizen 亮度</AssemblyName>
     <ApplicationIcon>assets\samsung-tizen-tv.ico</ApplicationIcon>
-    <Version>0.6.1</Version>
+    <Version>0.6.2</Version>
     <AssemblyTitle>Samsung Tizen Brightness</AssemblyTitle>
     <Authors>dttutty</Authors>
     <Description>Windows tray brightness controller for Samsung Tizen displays</Description>

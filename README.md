@@ -30,7 +30,7 @@ Verified on Samsung Smart Monitor M7 / M70B (`LS43BM702UNXZA`, 2022 Tizen). Othe
 
 Start-at-login is enabled from the first-run guide and can be changed from the tray icon's right-click menu. It starts silently in the background.
 
-With the companion Tizen app installed, the controller wakes the display network and bridge first, then changes brightness directly without covering HDMI. Without Developer Mode, it automatically falls back to simulated remote-control keys; the TV settings menu appears briefly while adjusting.
+With the companion Tizen app installed, the controller wakes the display network and bridge first, then changes brightness directly without covering HDMI. When Tizen Studio is installed, it can also recover the bridge through a hidden SDB process without keeping Device Manager open. Without Developer Mode, it automatically falls back to simulated remote-control keys; the TV settings menu appears briefly while adjusting.
 
 <details>
 <summary><strong>Optional: install the Tizen bridge (Developer Mode)</strong></summary>
