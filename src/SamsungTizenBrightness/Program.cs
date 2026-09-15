@@ -8,8 +8,10 @@ using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Management;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
+using System.Xml.Linq;
 using Microsoft.Win32;
 
 namespace SamsungTizenBrightness;
@@ -22,7 +24,29 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        AppDiagnostics.Log(
+            $"process entry; pid={Environment.ProcessId}; version={Application.ProductVersion}; " +
+            $"args={string.Join(' ', args.Select(arg => $"[{arg}]"))}");
         ApplicationConfiguration.Initialize();
+
+        if (args.Any(arg => string.Equals(
+                arg,
+                "--register-startup",
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            try
+            {
+                StartupRegistration.SetEnabled(true);
+                AppDiagnostics.Log("startup registration requested; completed");
+            }
+            catch (Exception ex)
+            {
+                AppDiagnostics.Log(
+                    $"startup registration requested; failed; {ex.GetType().Name}: {ex.Message}");
+                Environment.ExitCode = 1;
+            }
+            return;
+        }
 
         _singleInstance = new Mutex(
             true,
@@ -30,6 +54,7 @@ internal static class Program
             out bool createdNew);
         if (!createdNew)
         {
+            AppDiagnostics.Log("duplicate process entry; signaling existing instance");
             try
             {
                 using EventWaitHandle existingSignal = EventWaitHandle.OpenExisting(OpenSignalName);
@@ -45,6 +70,7 @@ internal static class Program
 
         try
         {
+            StartupRegistration.MigrateLegacyIfNeeded();
             string? host = LocalState.TryLoadHost();
             if (host is null)
             {
@@ -69,9 +95,12 @@ internal static class Program
                 openOnLaunch,
                 startedWithWindows,
                 openSignal));
+            AppDiagnostics.Log("process exit; normal");
         }
         catch (Exception ex)
         {
+            AppDiagnostics.Log($"process exit; startup fatal; {ex.GetType().Name}: {ex.Message}");
+            Environment.ExitCode = 1;
             MessageBox.Show(
                 $"无法启动 Samsung Tizen 亮度：\n{ex.Message}",
                 "Samsung Tizen 亮度",
@@ -302,11 +331,39 @@ internal static class ConnectionSetupPrompt
 internal static class StartupRegistration
 {
     private const string ValueName = "SamsungTizenBrightness";
+    private const string TaskName = @"\Samsung Tizen Brightness";
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string ApprovalKeyPath =
         @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
 
     public static bool IsEnabled()
+    {
+        if (TryReadTaskXml(out string taskXml) && TaskMatches(taskXml))
+            return true;
+
+        return IsLegacyEnabled();
+    }
+
+    public static void MigrateLegacyIfNeeded()
+    {
+        if (!IsLegacyEnabled())
+            return;
+
+        try
+        {
+            SetEnabled(true);
+            AppDiagnostics.Log("startup registration migrated from Run key to scheduled task");
+        }
+        catch (Exception error)
+        {
+            // Keep the working Run entry when migration is unavailable. A later
+            // launch can retry without breaking the user's existing autostart.
+            AppDiagnostics.Log(
+                $"startup registration migration failed; {error.GetType().Name}: {error.Message}");
+        }
+    }
+
+    private static bool IsLegacyEnabled()
     {
         using RegistryKey? runKey = Registry.CurrentUser.OpenSubKey(RunKeyPath);
         string? command = runKey?.GetValue(ValueName) as string;
@@ -322,12 +379,13 @@ internal static class StartupRegistration
 
     public static void SetEnabled(bool enabled)
     {
-        using RegistryKey runKey = Registry.CurrentUser.CreateSubKey(
-            RunKeyPath,
-            writable: true);
         if (enabled)
         {
-            runKey.SetValue(ValueName, BuildCommand(), RegistryValueKind.String);
+            CreateOrUpdateTask();
+            using RegistryKey runKey = Registry.CurrentUser.CreateSubKey(
+                RunKeyPath,
+                writable: true);
+            runKey.DeleteValue(ValueName, throwOnMissingValue: false);
             using RegistryKey approvalKey = Registry.CurrentUser.CreateSubKey(
                 ApprovalKeyPath,
                 writable: true);
@@ -335,9 +393,163 @@ internal static class StartupRegistration
         }
         else
         {
+            DeleteTask();
+            using RegistryKey runKey = Registry.CurrentUser.CreateSubKey(
+                RunKeyPath,
+                writable: true);
             runKey.DeleteValue(ValueName, throwOnMissingValue: false);
         }
     }
+
+    private static void CreateOrUpdateTask()
+    {
+        string userSid = WindowsIdentity.GetCurrent().User?.Value
+            ?? throw new IOException("无法取得当前 Windows 用户标识。");
+        string executable = System.Security.SecurityElement.Escape(Application.ExecutablePath)
+            ?? Application.ExecutablePath;
+        string sid = System.Security.SecurityElement.Escape(userSid) ?? userSid;
+        string xml = $"""
+            <?xml version="1.0" encoding="UTF-16"?>
+            <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+              <RegistrationInfo>
+                <Description>Samsung Tizen 显示器亮度托盘程序</Description>
+              </RegistrationInfo>
+              <Triggers>
+                <LogonTrigger>
+                  <Enabled>true</Enabled>
+                  <UserId>{sid}</UserId>
+                  <Delay>PT5S</Delay>
+                </LogonTrigger>
+              </Triggers>
+              <Principals>
+                <Principal id="Author">
+                  <UserId>{sid}</UserId>
+                  <LogonType>InteractiveToken</LogonType>
+                  <RunLevel>LeastPrivilege</RunLevel>
+                </Principal>
+              </Principals>
+              <Settings>
+                <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+                <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+                <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+                <AllowHardTerminate>true</AllowHardTerminate>
+                <StartWhenAvailable>true</StartWhenAvailable>
+                <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+                <IdleSettings>
+                  <StopOnIdleEnd>false</StopOnIdleEnd>
+                  <RestartOnIdle>false</RestartOnIdle>
+                </IdleSettings>
+                <AllowStartOnDemand>true</AllowStartOnDemand>
+                <Enabled>true</Enabled>
+                <Hidden>false</Hidden>
+                <RunOnlyIfIdle>false</RunOnlyIfIdle>
+                <WakeToRun>false</WakeToRun>
+                <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+                <Priority>7</Priority>
+                <RestartOnFailure>
+                  <Interval>PT1M</Interval>
+                  <Count>3</Count>
+                </RestartOnFailure>
+              </Settings>
+              <Actions Context="Author">
+                <Exec>
+                  <Command>{executable}</Command>
+                  <Arguments>--startup</Arguments>
+                </Exec>
+              </Actions>
+            </Task>
+            """;
+
+        string temporaryXml = Path.Combine(
+            Path.GetTempPath(),
+            $"SamsungTizenBrightness-{Guid.NewGuid():N}.xml");
+        try
+        {
+            File.WriteAllText(temporaryXml, xml, Encoding.Unicode);
+            ProcessResult result = RunSchtasks(["/Create", "/TN", TaskName, "/XML", temporaryXml, "/F"]);
+            if (result.ExitCode != 0)
+                throw new IOException(DescribeSchtasksFailure("创建登录计划任务", result));
+        }
+        finally
+        {
+            try { File.Delete(temporaryXml); } catch { }
+        }
+    }
+
+    private static void DeleteTask()
+    {
+        if (!TryReadTaskXml(out _))
+            return;
+
+        ProcessResult result = RunSchtasks(["/Delete", "/TN", TaskName, "/F"]);
+        if (result.ExitCode != 0)
+            throw new IOException(DescribeSchtasksFailure("删除登录计划任务", result));
+    }
+
+    private static bool TryReadTaskXml(out string xml)
+    {
+        ProcessResult result = RunSchtasks(["/Query", "/TN", TaskName, "/XML"]);
+        xml = result.StandardOutput;
+        return result.ExitCode == 0 && !string.IsNullOrWhiteSpace(xml);
+    }
+
+    private static bool TaskMatches(string xml)
+    {
+        try
+        {
+            XDocument document = XDocument.Parse(xml);
+            string? enabled = document.Descendants()
+                .FirstOrDefault(element => element.Name.LocalName == "Enabled")?.Value;
+            string? command = document.Descendants()
+                .FirstOrDefault(element => element.Name.LocalName == "Command")?.Value;
+            string? arguments = document.Descendants()
+                .FirstOrDefault(element => element.Name.LocalName == "Arguments")?.Value;
+            return !string.Equals(enabled, "false", StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(command, Application.ExecutablePath, StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(arguments?.Trim(), "--startup", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static ProcessResult RunSchtasks(IEnumerable<string> arguments)
+    {
+        var start = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = Path.Combine(Environment.SystemDirectory, "schtasks.exe"),
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        foreach (string argument in arguments)
+            start.ArgumentList.Add(argument);
+
+        using System.Diagnostics.Process process = System.Diagnostics.Process.Start(start)
+            ?? throw new IOException("无法启动 Windows 任务计划程序命令。");
+        string standardOutput = process.StandardOutput.ReadToEnd();
+        string standardError = process.StandardError.ReadToEnd();
+        if (!process.WaitForExit(10_000))
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+            throw new IOException("Windows 任务计划程序响应超时。");
+        }
+        return new ProcessResult(process.ExitCode, standardOutput, standardError);
+    }
+
+    private static string DescribeSchtasksFailure(string action, ProcessResult result)
+    {
+        string detail = string.IsNullOrWhiteSpace(result.StandardError)
+            ? result.StandardOutput.Trim()
+            : result.StandardError.Trim();
+        return string.IsNullOrWhiteSpace(detail)
+            ? $"{action}失败（代码 {result.ExitCode}）。"
+            : $"{action}失败：{detail}";
+    }
+
+    private sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError);
 
     private static string BuildCommand()
         => $"\"{Application.ExecutablePath}\" --startup";
@@ -476,8 +688,13 @@ internal sealed class TrayContext : ApplicationContext
         if (connected)
         {
             CancelHdmiDisconnect();
-            if (_bridgeStoppedForLifecycle && !_suspended)
-                ScheduleBridgeRestore("HDMI reconnected", TimeSpan.FromSeconds(2));
+            if (!_suspended && !_session.IsBridgeConnected)
+            {
+                string reason = _bridgeStoppedForLifecycle
+                    ? "HDMI reconnected"
+                    : "application startup";
+                ScheduleBridgeRestore(reason, TimeSpan.FromSeconds(2));
+            }
             return;
         }
 
