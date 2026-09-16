@@ -3418,9 +3418,7 @@ internal sealed class HdmiMonitorPresence : IDisposable
 internal static class LocalState
 {
     private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("M70B-Brightness-v1");
-    private static readonly string DirectoryPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "M70BBrightness");
+    private static readonly string DirectoryPath = UserDataDirectory.Resolve();
     private static readonly string TokenPath = Path.Combine(DirectoryPath, "token.dat");
     private static readonly string BrightnessPath = Path.Combine(DirectoryPath, "brightness.txt");
     private static readonly string HostPath = Path.Combine(DirectoryPath, "host.txt");
@@ -3429,8 +3427,12 @@ internal static class LocalState
     public static string? TryLoadHost()
     {
         if (!File.Exists(HostPath))
+        {
+            AppDiagnostics.Log($"saved display IP not found; path={HostPath}");
             return null;
+        }
         string host = File.ReadAllText(HostPath).Trim();
+        AppDiagnostics.Log($"saved display IP loaded; path={HostPath}; present={host.Length > 0}");
         return host.Length > 0 ? host : null;
     }
 
@@ -3522,12 +3524,49 @@ internal static class LocalState
     }
 }
 
+internal static class UserDataDirectory
+{
+    public static string Resolve()
+    {
+        string localAppData = Environment.GetFolderPath(
+            Environment.SpecialFolder.LocalApplicationData);
+        string normalPath = Path.Combine(localAppData, "M70BBrightness");
+
+        try
+        {
+            string? sid = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value;
+            if (sid is not null)
+            {
+                using RegistryKey? profileKey = Registry.LocalMachine.OpenSubKey(
+                    $@"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\{sid}");
+                string? profile = profileKey?.GetValue("ProfileImagePath") as string;
+                if (!string.IsNullOrWhiteSpace(profile))
+                {
+                    string profilePath = Path.Combine(
+                        Environment.ExpandEnvironmentVariables(profile),
+                        "AppData", "Local", "M70BBrightness");
+                    // Task Scheduler can occasionally start before the user
+                    // shell has populated the standard folder lookup. Reuse
+                    // the current account's existing settings in that case.
+                    if (File.Exists(Path.Combine(profilePath, "host.txt")) ||
+                        string.IsNullOrWhiteSpace(localAppData))
+                        return profilePath;
+                }
+            }
+        }
+        catch
+        {
+            // The normal Windows known-folder path still works for fresh installs.
+        }
+
+        return normalPath;
+    }
+}
+
 internal static class AppDiagnostics
 {
     private static readonly object Gate = new();
-    private static readonly string DirectoryPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "M70BBrightness");
+    private static readonly string DirectoryPath = UserDataDirectory.Resolve();
     private static readonly string LogPath = Path.Combine(DirectoryPath, "diagnostic.log");
 
     public static void Log(string message)
