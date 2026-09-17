@@ -71,13 +71,17 @@ internal static class Program
         try
         {
             StartupRegistration.MigrateLegacyIfNeeded();
-            string? host = LocalState.TryLoadHost();
+            string? startupHost = ReadOption(args, "--host");
+            string? host = startupHost ?? LocalState.TryLoadHost();
+            if (startupHost is not null)
+                AppDiagnostics.Log("saved display IP loaded from startup task backup");
             if (host is null)
             {
                 host = ConnectionSetupPrompt.Show();
                 if (host is null)
                     return;
                 LocalState.SaveHost(host);
+                StartupRegistration.RefreshHostBackup(host);
             }
 
             string token = LocalState.TryLoadToken() ?? string.Empty;
@@ -107,6 +111,17 @@ internal static class Program
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }
+    }
+
+    private static string? ReadOption(string[] args, string option)
+    {
+        for (int index = 0; index < args.Length - 1; index++)
+        {
+            if (string.Equals(args[index], option, StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(args[index + 1]))
+                return args[index + 1].Trim();
+        }
+        return null;
     }
 }
 
@@ -401,13 +416,24 @@ internal static class StartupRegistration
         }
     }
 
-    private static void CreateOrUpdateTask()
+    public static void RefreshHostBackup(string host)
+    {
+        if (TryReadTaskXml(out _))
+            CreateOrUpdateTask(host);
+    }
+
+    private static void CreateOrUpdateTask(string? host = null)
     {
         string userSid = WindowsIdentity.GetCurrent().User?.Value
             ?? throw new IOException("无法取得当前 Windows 用户标识。");
         string executable = System.Security.SecurityElement.Escape(Application.ExecutablePath)
             ?? Application.ExecutablePath;
         string sid = System.Security.SecurityElement.Escape(userSid) ?? userSid;
+        host ??= LocalState.TryLoadHost();
+        string arguments = "--startup";
+        if (!string.IsNullOrWhiteSpace(host))
+            arguments += $" --host \"{host.Trim()}\"";
+        string escapedArguments = System.Security.SecurityElement.Escape(arguments) ?? arguments;
         string xml = $"""
             <?xml version="1.0" encoding="UTF-16"?>
             <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -418,7 +444,7 @@ internal static class StartupRegistration
                 <LogonTrigger>
                   <Enabled>true</Enabled>
                   <UserId>{sid}</UserId>
-                  <Delay>PT5S</Delay>
+                  <Delay>PT10S</Delay>
                 </LogonTrigger>
               </Triggers>
               <Principals>
@@ -454,7 +480,7 @@ internal static class StartupRegistration
               <Actions Context="Author">
                 <Exec>
                   <Command>{executable}</Command>
-                  <Arguments>--startup</Arguments>
+                  <Arguments>{escapedArguments}</Arguments>
                 </Exec>
               </Actions>
             </Task>
@@ -506,7 +532,7 @@ internal static class StartupRegistration
                 .FirstOrDefault(element => element.Name.LocalName == "Arguments")?.Value;
             return !string.Equals(enabled, "false", StringComparison.OrdinalIgnoreCase) &&
                    string.Equals(command, Application.ExecutablePath, StringComparison.OrdinalIgnoreCase) &&
-                   string.Equals(arguments?.Trim(), "--startup", StringComparison.OrdinalIgnoreCase);
+                   arguments?.Trim().StartsWith("--startup", StringComparison.OrdinalIgnoreCase) == true;
         }
         catch
         {
@@ -937,6 +963,7 @@ internal sealed class TrayContext : ApplicationContext
             return;
 
         LocalState.SaveHost(updatedHost);
+        StartupRegistration.RefreshHostBackup(updatedHost);
         MessageBox.Show(
             "新的显示器 IP 已保存。请退出并重新启动程序后生效。",
             "Samsung Tizen 亮度",
