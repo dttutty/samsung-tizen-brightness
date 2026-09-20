@@ -19,6 +19,8 @@ internal sealed class MonitorControlPopup : Form
     private readonly MonitorConnectivity _connectivity;
     private readonly string _host;
     private readonly Label _subtitle = new();
+    private readonly Button _themeButton = new();
+    private readonly ToolTip _themeToolTip = new();
     private readonly FlowLayoutPanel _settingsPanel = new();
     private readonly Panel _overlay = new();
     private readonly Label _overlayTitle = new();
@@ -77,6 +79,20 @@ internal sealed class MonitorControlPopup : Form
         _subtitle.Font = new Font(Font.FontFamily, 8.5F);
         _subtitle.Location = new Point(21, 43);
 
+        _themeButton.Location = new Point(FlyoutWidth - 112, 17);
+        _themeButton.Size = new Size(92, 30);
+        _themeButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        _themeButton.FlatStyle = FlatStyle.Flat;
+        _themeButton.FlatAppearance.BorderSize = 0;
+        _themeButton.FlatAppearance.MouseOverBackColor = FlyoutColors.Hover;
+        _themeButton.FlatAppearance.MouseDownBackColor = FlyoutColors.Pressed;
+        _themeButton.BackColor = FlyoutColors.Surface;
+        _themeButton.ForeColor = FlyoutColors.PrimaryText;
+        _themeButton.Font = new Font(Font.FontFamily, 8.5F);
+        _themeButton.Cursor = Cursors.Hand;
+        _themeButton.Click += ThemeButton_Click;
+        RefreshThemeButton();
+
         var separator = new Panel
         {
             BackColor = FlyoutColors.Border,
@@ -97,7 +113,7 @@ internal sealed class MonitorControlPopup : Form
 
         ConfigureOverlay();
 
-        Controls.AddRange([title, _subtitle, separator, _settingsPanel, _overlay]);
+        Controls.AddRange([title, _subtitle, _themeButton, separator, _settingsPanel, _overlay]);
         _overlay.BringToFront();
 
         _closeTimer.Interval = 320;
@@ -128,6 +144,7 @@ internal sealed class MonitorControlPopup : Form
             CancelClose();
         await _remoteMenuCloseTask;
 
+        RefreshThemeButton();
         PositionNearTray();
         if (!Visible)
             Show();
@@ -157,6 +174,36 @@ internal sealed class MonitorControlPopup : Form
         _session.ProgressChanged -= Session_ProgressChanged;
         await _session.CloseAsync();
         await _session.DisposeAsync();
+    }
+
+    private void RefreshThemeButton()
+    {
+        bool light = WindowsColorMode.IsLight;
+        _themeButton.Text = light ? "☀ 浅色" : "☾ 深色";
+        _themeButton.AccessibleName = light
+            ? "当前为 Windows 浅色模式，点击切换到深色模式"
+            : "当前为 Windows 深色模式，点击切换到浅色模式";
+        _themeToolTip.SetToolTip(_themeButton, light
+            ? "切换 Windows 至深色模式"
+            : "切换 Windows 至浅色模式");
+    }
+
+    private void ThemeButton_Click(object? sender, EventArgs e)
+    {
+        try
+        {
+            WindowsColorMode.SetLight(!WindowsColorMode.IsLight);
+            RefreshThemeButton();
+        }
+        catch (Exception error)
+        {
+            AppDiagnostics.Log($"Windows color mode switch failed; {error.GetType().Name}: {error.Message}");
+            MessageBox.Show(
+                $"无法切换 Windows 深色／浅色模式：\n{error.Message}",
+                Text,
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
     }
 
     private void ConfigureOverlay()
@@ -671,6 +718,7 @@ internal sealed class MonitorControlPopup : Form
         {
             _closeTimer.Dispose();
             _outsideClickTimer.Dispose();
+            _themeToolTip.Dispose();
         }
         base.Dispose(disposing);
     }
