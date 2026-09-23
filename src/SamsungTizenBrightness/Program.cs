@@ -595,6 +595,7 @@ internal sealed class TrayContext : ApplicationContext
     private readonly BrightnessBridgeServer _bridge;
     private readonly EventWaitHandle _openSignal;
     private readonly System.Windows.Forms.Timer _openSignalTimer = new();
+    private readonly System.Windows.Forms.Timer _trayRegistrationTimer = new();
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private CancellationTokenSource? _hdmiDisconnectCancellation;
     private CancellationTokenSource? _bridgeRestoreCancellation;
@@ -648,6 +649,23 @@ internal sealed class TrayContext : ApplicationContext
             if (e.Button == MouseButtons.Left)
                 _popup.OpenNearCursor();
         };
+
+        // NotifyIcon is initially constructed before Application.Run enters
+        // the WinForms message loop. Explorer occasionally drops that first
+        // registration (notably just after an in-place update). Re-register it
+        // once the UI loop is active so a healthy background process can never
+        // remain running without a visible tray entry.
+        _trayRegistrationTimer.Interval = 900;
+        _trayRegistrationTimer.Tick += (_, _) =>
+        {
+            _trayRegistrationTimer.Stop();
+            if (_exiting)
+                return;
+            _trayIcon.Visible = false;
+            _trayIcon.Visible = true;
+            AppDiagnostics.Log("tray icon registration refreshed after startup");
+        };
+        _trayRegistrationTimer.Start();
 
         if (!startedWithWindows)
         {
@@ -1011,6 +1029,7 @@ internal sealed class TrayContext : ApplicationContext
         _trayIcon.Dispose();
         _offlineIcon.Dispose();
         _appIcon.Dispose();
+        _trayRegistrationTimer.Dispose();
         _openSignalTimer.Dispose();
         _popup.Dispose();
         ExitThread();
