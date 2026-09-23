@@ -115,6 +115,8 @@ internal sealed class MonitorControlPopup : Form
 
         Controls.AddRange([title, _subtitle, _themeButton, separator, _settingsPanel, _overlay]);
         _overlay.BringToFront();
+        BuildCachedBrightnessShell();
+        _overlay.Visible = false;
 
         _closeTimer.Interval = 320;
         _closeTimer.Tick += (_, _) => FinishClose();
@@ -142,17 +144,27 @@ internal sealed class MonitorControlPopup : Form
         AppDiagnostics.Log($"open requested; visible={Visible}; connected={_connected}; bridge={_session.IsBridgeConnected}");
         if (_closing)
             CancelClose();
-        await _remoteMenuCloseTask;
 
         RefreshThemeButton();
+        if (!_snapshotLoaded)
+            ShowLoadingShell("正在检测显示器…");
         PositionNearTray();
         if (!Visible)
             Show();
         AppDiagnostics.Log($"show completed; visible={Visible}");
         Activate();
+        Update();
         _mouseButtonsWereDown = Control.MouseButtons != MouseButtons.None;
         _outsideClickArmedAt = DateTime.UtcNow.AddMilliseconds(250);
         _outsideClickTimer.Start();
+
+        // Paint the complete cached flyout before network, WebSocket or SDB
+        // recovery starts. Those operations can spend seconds timing out when
+        // the PC is connected to a network without the display.
+        await Task.Yield();
+        await _remoteMenuCloseTask;
+        if (!Visible || _closing)
+            return;
 
         if (_connected is true || _session.IsAvailable)
         {
@@ -242,10 +254,7 @@ internal sealed class MonitorControlPopup : Form
             return;
 
         _waking = true;
-        ShowOverlay(
-            "正在启动显示器控制…",
-            "优先启动桥接器；不可用时切换遥控模式",
-            busy: true);
+        ShowLoadingShell("正在连接显示器…");
         try
         {
             await _session.WakeBridgeAsync();
@@ -276,10 +285,7 @@ internal sealed class MonitorControlPopup : Form
 
         _opening = true;
         AppDiagnostics.Log("snapshot started");
-        ShowOverlay(
-            "正在读取显示器设置…",
-            "GET_CAPABILITIES + GET_SETTINGS",
-            busy: true);
+        ShowLoadingShell("正在读取亮度…");
         try
         {
             if (!_session.IsOpen)
@@ -374,6 +380,40 @@ internal sealed class MonitorControlPopup : Form
         {
             _settingsPanel.ResumeLayout(true);
         }
+    }
+
+    private void BuildCachedBrightnessShell()
+    {
+        if (_settingsPanel.Controls.Count > 0)
+            return;
+
+        var row = new MonitorSliderSettingRow(
+            BrightnessSettingKey,
+            "亮度",
+            minimum: 0,
+            maximum: 50,
+            value: _session.CurrentBrightness,
+            writable: false,
+            requiresConfirmation: false,
+            showSunEndpoints: true,
+            showMuteButton: false,
+            muted: false,
+            muteWritable: false)
+        {
+            Width = _settingsPanel.ClientSize.Width - 13,
+            Margin = new Padding(0, 0, 0, 2)
+        };
+        _settingsPanel.Controls.Add(row);
+    }
+
+    private void ShowLoadingShell(string status)
+    {
+        BuildCachedBrightnessShell();
+        foreach (Control control in _settingsPanel.Controls)
+            control.Enabled = false;
+        _subtitle.Text = status;
+        _subtitle.ForeColor = FlyoutColors.SecondaryText;
+        _overlay.Visible = false;
     }
 
     private void AddSectionHeader(string section)
@@ -583,10 +623,10 @@ internal sealed class MonitorControlPopup : Form
     {
         void Update()
         {
-            if ((_opening || _waking) && _overlay.Visible && !_closing)
+            if ((_opening || _waking) && !_closing)
             {
-                _overlayTitle.Text = status;
-                _overlayCommand.Text = command;
+                _subtitle.Text = status;
+                _subtitle.ForeColor = FlyoutColors.SecondaryText;
             }
         }
 
@@ -611,7 +651,13 @@ internal sealed class MonitorControlPopup : Form
 
     private void ShowOffline(string message)
     {
-        ShowOverlay("显示器当前不可用", message, busy: false);
+        AppDiagnostics.Log(message);
+        BuildCachedBrightnessShell();
+        foreach (Control control in _settingsPanel.Controls)
+            control.Enabled = false;
+        _subtitle.Text = "显示器当前不可用";
+        _subtitle.ForeColor = FlyoutColors.Error;
+        _overlay.Visible = false;
     }
 
     private void HideOverlay()
