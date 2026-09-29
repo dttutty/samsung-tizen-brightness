@@ -18,6 +18,7 @@ internal sealed class MonitorControlPopup : Form
     private readonly SamsungBrightnessSession _session;
     private readonly MonitorConnectivity _connectivity;
     private readonly string _host;
+    private readonly Label _title = new();
     private readonly Label _subtitle = new();
     private readonly Button _themeButton = new();
     private readonly ToolTip _themeToolTip = new();
@@ -49,7 +50,7 @@ internal sealed class MonitorControlPopup : Form
         _connectivity = connectivity;
         _host = host;
 
-        Text = "Samsung Tizen 亮度";
+        Text = L.T("AppTitle");
         ClientSize = new Size(FlyoutWidth, FlyoutHeight);
         FormBorderStyle = FormBorderStyle.None;
         MaximizeBox = false;
@@ -62,17 +63,14 @@ internal sealed class MonitorControlPopup : Form
         Font = new Font("Microsoft YaHei UI", 9F);
         DoubleBuffered = true;
 
-        var title = new Label
-        {
-            Text = "Samsung 显示器亮度",
-            AutoSize = true,
-            BackColor = Color.Transparent,
-            ForeColor = Color.White,
-            Font = new Font(Font.FontFamily, 12.5F, FontStyle.Bold),
-            Location = new Point(20, 15)
-        };
+        _title.Text = L.T("PopupTitle");
+        _title.AutoSize = true;
+        _title.BackColor = Color.Transparent;
+        _title.ForeColor = Color.White;
+        _title.Font = new Font(Font.FontFamily, 12.5F, FontStyle.Bold);
+        _title.Location = new Point(20, 15);
 
-        _subtitle.Text = "正在检测连接…";
+        _subtitle.Text = L.T("DetectingConnection");
         _subtitle.AutoSize = true;
         _subtitle.BackColor = Color.Transparent;
         _subtitle.ForeColor = FlyoutColors.SecondaryText;
@@ -113,7 +111,7 @@ internal sealed class MonitorControlPopup : Form
 
         ConfigureOverlay();
 
-        Controls.AddRange([title, _subtitle, _themeButton, separator, _settingsPanel, _overlay]);
+        Controls.AddRange([_title, _subtitle, _themeButton, separator, _settingsPanel, _overlay]);
         _overlay.BringToFront();
         BuildCachedBrightnessShell();
         _overlay.Visible = false;
@@ -147,7 +145,7 @@ internal sealed class MonitorControlPopup : Form
 
         RefreshThemeButton();
         if (!_snapshotLoaded)
-            ShowLoadingShell("正在检测显示器…");
+            ShowLoadingShell(L.T("DetectingDisplay"));
         PositionNearTray();
         if (!Visible)
             Show();
@@ -188,16 +186,36 @@ internal sealed class MonitorControlPopup : Form
         await _session.DisposeAsync();
     }
 
+    public void ApplyLanguage()
+    {
+        Text = L.T("AppTitle");
+        _title.Text = L.T("PopupTitle");
+        RefreshThemeButton();
+        _snapshotLoaded = false;
+        if (_connected is true)
+        {
+            _subtitle.Text = _session.IsFallbackMode
+                ? L.T("FallbackConnected")
+                : L.T("HdmiConnected");
+            if (Visible)
+                _ = EnsureSessionAndSnapshotAsync();
+        }
+        else
+        {
+            _subtitle.Text = L.T("DisplayUnavailable");
+        }
+    }
+
     private void RefreshThemeButton()
     {
         bool light = WindowsColorMode.IsLight;
-        _themeButton.Text = light ? "☀ 浅色" : "☾ 深色";
+        _themeButton.Text = light ? L.T("ThemeLight") : L.T("ThemeDark");
         _themeButton.AccessibleName = light
-            ? "当前为 Windows 浅色模式，点击切换到深色模式"
-            : "当前为 Windows 深色模式，点击切换到浅色模式";
+            ? L.T("ThemeLightAccessible")
+            : L.T("ThemeDarkAccessible");
         _themeToolTip.SetToolTip(_themeButton, light
-            ? "切换 Windows 至深色模式"
-            : "切换 Windows 至浅色模式");
+            ? L.T("SwitchToDark")
+            : L.T("SwitchToLight"));
     }
 
     private void ThemeButton_Click(object? sender, EventArgs e)
@@ -211,7 +229,7 @@ internal sealed class MonitorControlPopup : Form
         {
             AppDiagnostics.Log($"Windows color mode switch failed; {error.GetType().Name}: {error.Message}");
             MessageBox.Show(
-                $"无法切换 Windows 深色／浅色模式：\n{error.Message}",
+                L.T("ThemeSwitchFailed", error.Message),
                 Text,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
@@ -254,7 +272,7 @@ internal sealed class MonitorControlPopup : Form
             return;
 
         _waking = true;
-        ShowLoadingShell("正在连接显示器…");
+        ShowLoadingShell(L.T("ConnectingDisplay"));
         try
         {
             await _session.WakeBridgeAsync();
@@ -285,7 +303,7 @@ internal sealed class MonitorControlPopup : Form
 
         _opening = true;
         AppDiagnostics.Log("snapshot started");
-        ShowLoadingShell("正在读取亮度…");
+        ShowLoadingShell(L.T("ReadingBrightness"));
         try
         {
             if (!_session.IsOpen)
@@ -299,8 +317,8 @@ internal sealed class MonitorControlPopup : Form
             AppDiagnostics.Log($"snapshot completed; capabilities={snapshot.Capabilities.Count}; values={snapshot.Values.Count}");
             _snapshotLoaded = true;
             _subtitle.Text = _session.IsFallbackMode
-                ? "遥控兼容模式已连接"
-                : "HDMI 控制已连接";
+                ? L.T("FallbackConnected")
+                : L.T("HdmiConnected");
             _subtitle.ForeColor = FlyoutColors.Connected;
             HideOverlay();
         }
@@ -342,8 +360,6 @@ internal sealed class MonitorControlPopup : Form
 
             foreach (IGrouping<string, MonitorSettingCapability> group in grouped)
             {
-                if (group.Key is not ("画面" or "高级画面" or "高级画质" or "声音"))
-                    AddSectionHeader(group.Key);
                 foreach (MonitorSettingCapability capability in group)
                 {
                     object? value = snapshot.Values[capability.Key];
@@ -365,7 +381,7 @@ internal sealed class MonitorControlPopup : Form
             {
                 _settingsPanel.Controls.Add(new Label
                 {
-                    Text = "当前无法读取亮度。",
+                    Text = L.T("BrightnessUnavailable"),
                     ForeColor = FlyoutColors.SecondaryText,
                     BackColor = Color.Transparent,
                     AutoSize = false,
@@ -389,7 +405,7 @@ internal sealed class MonitorControlPopup : Form
 
         var row = new MonitorSliderSettingRow(
             BrightnessSettingKey,
-            "亮度",
+            L.T("Brightness"),
             minimum: 0,
             maximum: 50,
             value: _session.CurrentBrightness,
@@ -587,9 +603,9 @@ internal sealed class MonitorControlPopup : Form
             _connected = connected;
             _subtitle.Text = connected
                 ? _session.IsFallbackMode
-                    ? "遥控兼容模式已连接"
-                    : "HDMI 控制已连接"
-                : "显示器控制已断开";
+                    ? L.T("FallbackConnected")
+                    : L.T("HdmiConnected")
+                : L.T("ControlDisconnected");
             _subtitle.ForeColor = connected ? FlyoutColors.Connected : FlyoutColors.Error;
 
             if (_closing)
@@ -625,7 +641,9 @@ internal sealed class MonitorControlPopup : Form
         {
             if ((_opening || _waking) && !_closing)
             {
-                _subtitle.Text = status;
+                _subtitle.Text = _opening
+                    ? L.T("ReadingBrightness")
+                    : L.T("ConnectingDisplay");
                 _subtitle.ForeColor = FlyoutColors.SecondaryText;
             }
         }
@@ -655,7 +673,7 @@ internal sealed class MonitorControlPopup : Form
         BuildCachedBrightnessShell();
         foreach (Control control in _settingsPanel.Controls)
             control.Enabled = false;
-        _subtitle.Text = "显示器当前不可用";
+        _subtitle.Text = L.T("DisplayUnavailable");
         _subtitle.ForeColor = FlyoutColors.Error;
         _overlay.Visible = false;
     }
@@ -676,7 +694,7 @@ internal sealed class MonitorControlPopup : Form
         _closing = true;
         _outsideClickTimer.Stop();
         ShowOverlay(
-            "正在收起控制窗口…",
+            L.T("ClosingControl"),
             _session.IsFallbackMode
                 ? "KEY_RETURN — 恢复电视画面"
                 : "HIDE — 保持显示器控制通道在线",
@@ -914,7 +932,7 @@ internal abstract class MonitorSettingRow : Control
 
     protected void DrawHeader(Graphics graphics)
     {
-        string labelText = _confirmationPending ? "再次点击确认" : DisplayName;
+        string labelText = _confirmationPending ? L.T("ClickAgainConfirm") : DisplayName;
         Color labelColor = _confirmationPending
             ? FlyoutColors.Warning
             : _error is null
@@ -1007,11 +1025,11 @@ internal sealed class MonitorSliderSettingRow : MonitorSettingRow
         {
             _minimumButton = new MonitorSunGlyphButton(11F)
             {
-                AccessibleName = "最小亮度"
+                AccessibleName = L.T("MinimumBrightness")
             };
             _maximumButton = new MonitorSunGlyphButton(17F)
             {
-                AccessibleName = "最大亮度"
+                AccessibleName = L.T("MaximumBrightness")
             };
             _minimumButton.Click += (_, _) =>
             {
@@ -1024,26 +1042,26 @@ internal sealed class MonitorSliderSettingRow : MonitorSettingRow
                 RequestValue(maximum);
             };
             Controls.AddRange([_minimumButton, _maximumButton]);
-            _toolTip.SetToolTip(_minimumButton, "设为最小亮度");
-            _toolTip.SetToolTip(_maximumButton, "设为最大亮度");
+            _toolTip.SetToolTip(_minimumButton, L.T("SetMinimumBrightness"));
+            _toolTip.SetToolTip(_maximumButton, L.T("SetMaximumBrightness"));
         }
         else if (showMuteButton)
         {
             _muteButton = new MonitorSpeakerGlyphButton(muted)
             {
-                AccessibleName = muted ? "取消静音" : "静音",
+                AccessibleName = muted ? L.T("Unmute") : L.T("Mute"),
                 Enabled = muteWritable
             };
             _muteButton.Click += (_, _) =>
             {
                 bool target = !_muteButton.Muted;
                 _muteButton.Muted = target;
-                _muteButton.AccessibleName = target ? "取消静音" : "静音";
-                _toolTip.SetToolTip(_muteButton, target ? "取消静音" : "静音");
+                _muteButton.AccessibleName = target ? L.T("Unmute") : L.T("Mute");
+                _toolTip.SetToolTip(_muteButton, target ? L.T("Unmute") : L.T("Mute"));
                 MuteRequested?.Invoke(this, target);
             };
             Controls.Add(_muteButton);
-            _toolTip.SetToolTip(_muteButton, muted ? "取消静音" : "静音");
+            _toolTip.SetToolTip(_muteButton, muted ? L.T("Unmute") : L.T("Mute"));
         }
         else
         {
@@ -1081,8 +1099,8 @@ internal sealed class MonitorSliderSettingRow : MonitorSettingRow
             : string.Equals(Convert.ToString(value), "ON", StringComparison.OrdinalIgnoreCase) ||
               Convert.ToString(value) == "1";
         _muteButton.Muted = muted;
-        _muteButton.AccessibleName = muted ? "取消静音" : "静音";
-        _toolTip.SetToolTip(_muteButton, muted ? "取消静音" : "静音");
+        _muteButton.AccessibleName = muted ? L.T("Unmute") : L.T("Mute");
+        _toolTip.SetToolTip(_muteButton, muted ? L.T("Unmute") : L.T("Mute"));
     }
 
     protected override void OnResize(EventArgs e)
@@ -1820,7 +1838,9 @@ internal static class SettingPresentation
     ];
 
     public static string DisplayName(string key)
-        => Names.TryGetValue(key, out string? name) ? name : SplitIdentifier(key);
+        => key.Equals("backlight", StringComparison.OrdinalIgnoreCase)
+            ? L.T("Brightness")
+            : Names.TryGetValue(key, out string? name) ? name : SplitIdentifier(key);
 
     public static bool IsHidden(string key) => HiddenSettings.Contains(key);
 
