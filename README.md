@@ -8,7 +8,7 @@ A Windows tray app that controls Samsung display hardware backlight **directly o
 
 ## Setup
 
-1. Download **Samsung-Tizen-Brightness-win-x64** from **Artifacts** in the latest successful [build](https://github.com/dttutty/samsung-tizen-brightness/actions/workflows/build.yml). GitHub sign-in is required.
+1. Download the **Setup** installer or portable EXE from [Releases](https://github.com/dttutty/samsung-tizen-brightness/releases/latest). The .NET runtime is included.
 2. Connect the PC and display to the same LAN. On the TV, open **Settings → All Settings → Connection → Network → Expert Settings → IP Remote**, then select **Enable**.
 3. Start the app and enter the display IP. Right-click its tray icon → **Authorize IP Remote…**, then choose **Allow** on the TV once. Keep the TV on during pairing.
 4. Left-click the tray icon to adjust brightness. Right-click → **Language** to change the app language.
@@ -17,7 +17,7 @@ Older TVs may use **Settings → General → Network → Expert Settings**. If I
 
 ## Requirements and behavior
 
-- Windows 11, .NET 10 Desktop Runtime and a compatible Samsung display. Tested on M7 / M70B (`LS43BM702UNXZA`); other models need verification.
+- Windows 11 x64 and a compatible Samsung display. No separate .NET installation is needed. Tested on M7 / M70B (`LS43BM702UNXZA`); other models need verification.
 - Brightness only: no automatic power-on/off, Wake-on-LAN, countdown or picture-menu fallback. Native no-signal standby remains unchanged.
 - Optional login startup starts only the tray app. Includes a Windows light/dark-mode toggle.
 - Authorization stays local, encrypted with Windows DPAPI and bound to the TV certificate. Normal clicks do not request permission.

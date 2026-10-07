@@ -8,7 +8,7 @@ Samsung 디스플레이의 하드웨어 백라이트를 **IP Remote로 직접 �
 
 ## 설정
 
-1. [최근 성공한 빌드](https://github.com/dttutty/samsung-tizen-brightness/actions/workflows/build.yml)의 **Artifacts**에서 **Samsung-Tizen-Brightness-win-x64**를 다운로드하세요. GitHub 로그인이 필요합니다.
+1. [Releases](https://github.com/dttutty/samsung-tizen-brightness/releases/latest)에서 **Setup 설치 프로그램** 또는 설치가 필요 없는 EXE를 다운로드하세요. .NET 런타임이 포함되어 있습니다.
 2. PC와 디스플레이를 같은 LAN에 연결하세요. TV에서 **설정 → 전체 설정 → 연결(Connection) → 네트워크 → 전문가 설정(Expert Settings) → IP Remote**로 이동하고 **Enable(사용)**을 선택하세요.
 3. 앱을 실행하고 디스플레이 IP를 입력하세요. 트레이 아이콘을 오른쪽 클릭 → **IP Remote 승인…**을 선택한 후 TV에서 한 번 **Allow(허용)**를 선택하세요. 페어링 중에는 TV를 켜 두세요.
 4. 트레이 아이콘을 왼쪽 클릭하여 밝기를 조절하세요. 오른쪽 클릭 메뉴 → **언어**에서 앱 언어를 변경하세요.
@@ -17,7 +17,7 @@ Samsung 디스플레이의 하드웨어 백라이트를 **IP Remote로 직접 �
 
 ## 요구 사항 및 동작
 
-- Windows 11, .NET 10 Desktop Runtime 및 호환되는 Samsung 디스플레이가 필요합니다. M7 / M70B(`LS43BM702UNXZA`)에서 검증했으며 다른 모델은 확인이 필요합니다.
+- Windows 11 x64 및 호환되는 Samsung 디스플레이가 필요합니다. .NET을 별도로 설치할 필요는 없습니다. M7 / M70B(`LS43BM702UNXZA`)에서 검증했으며 다른 모델은 확인이 필요합니다.
 - 밝기만 조절합니다. 자동 전원 제어, Wake-on-LAN, 카운트다운 또는 TV 화면 메뉴를 이용한 대체 제어는 없습니다. TV의 신호 없음 대기 동작은 변경하지 않습니다.
 - Windows 로그인 시 트레이 앱만 자동 실행하도록 설정할 수 있습니다. Windows 라이트/다크 모드 전환도 지원합니다.
 - 권한은 Windows DPAPI로 암호화하고 TV 인증서에 연결하여 로컬에만 저장합니다. 일반 클릭은 권한을 다시 요청하지 않습니다.

@@ -8,7 +8,7 @@ Una app para la bandeja de Windows que ajusta la retroiluminación de pantallas 
 
 ## Configuración
 
-1. Descarga **Samsung-Tizen-Brightness-win-x64** desde **Artifacts** de la [última compilación correcta](https://github.com/dttutty/samsung-tizen-brightness/actions/workflows/build.yml). Es necesario iniciar sesión en GitHub.
+1. Descarga el **instalador Setup** o el EXE portátil desde [Releases](https://github.com/dttutty/samsung-tizen-brightness/releases/latest). El entorno .NET está incluido.
 2. Conecta el PC y la pantalla a la misma LAN. En el televisor, abre **Ajustes → Todos los ajustes → Conexión (Connection) → Red → Configuración experta (Expert Settings) → IP Remote** y selecciona **Enable (Activar)**.
 3. Inicia la app e introduce la IP de la pantalla. Haz clic derecho en el icono de la bandeja → **Autorizar IP Remote…** y selecciona **Allow (Permitir)** en el televisor una sola vez. Mantén el televisor encendido durante el emparejamiento.
 4. Haz clic izquierdo en el icono para ajustar el brillo. Cambia el idioma desde el menú de clic derecho → **Idioma**.
@@ -17,7 +17,7 @@ En televisores antiguos, usa **Ajustes → General → Red → Configuración ex
 
 ## Requisitos y comportamiento
 
-- Windows 11, .NET 10 Desktop Runtime y una pantalla Samsung compatible. Probado en M7 / M70B (`LS43BM702UNXZA`); otros modelos requieren comprobación.
+- Windows 11 x64 y una pantalla Samsung compatible. No es necesario instalar .NET por separado. Probado en M7 / M70B (`LS43BM702UNXZA`); otros modelos requieren comprobación.
 - Solo brillo: sin encendido/apagado automático, Wake-on-LAN, cuenta atrás ni control alternativo mediante el menú de imagen. No cambia el modo de espera nativo por falta de señal.
 - El inicio opcional al entrar en Windows inicia solo la app de bandeja. Incluye el cambio de modo claro/oscuro de Windows.
 - El permiso se guarda solo localmente, cifrado con Windows DPAPI y vinculado al certificado del televisor. Los clics normales no vuelven a solicitar permiso.
