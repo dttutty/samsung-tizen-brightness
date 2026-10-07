@@ -24,6 +24,8 @@ jobs:
           -r win-x64
           --self-contained false
           -o .\publish
+      - name: Protocol tests (no display required)
+        run: dotnet run --project .\tests\SamsungTizenBrightness.Tests -c Release
       - uses: actions/upload-artifact@v4
         with:
           name: Samsung-Tizen-Brightness-win-x64

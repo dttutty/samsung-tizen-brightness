@@ -1,64 +1,35 @@
 # Samsung Tizen Brightness
 
-<p align="center">
-  <a href="README.zh-CN.md">简体中文</a> · <strong>English</strong>
-</p>
+<p align="center"><a href="README.zh-CN.md">简体中文</a> · <strong>English</strong></p>
 
-A Windows tray controller for the hardware backlight of compatible Samsung Tizen displays. Its companion TV app keeps the HDMI picture visible while brightness is adjusted.
+A Windows tray controller for Samsung display hardware backlight, using **IP Remote directly**. No TV companion app, Developer Mode, Tizen Studio or certificate setup.
 
-<p align="center">
-  <img src="docs/screenshots/brightness-flyout.png" width="478" alt="Brightness flyout">
-</p>
-
-## Download
-
-Download the Windows x64 build from [GitHub Releases](https://github.com/dttutty/samsung-tizen-brightness/releases/latest).
-
-## Requirements
-
-- Windows 11
-- A compatible Samsung Tizen display on the same local network
-- Optional: Developer Mode and the companion Tizen app for direct, menu-free control
-
-Verified on Samsung Smart Monitor M7 / M70B (`LS43BM702UNXZA`, 2022 Tizen). Other models may work but are not guaranteed.
+<p align="center"><img src="docs/screenshots/brightness-flyout.png" width="478" alt="Brightness flyout"></p>
 
 ## Setup
 
-1. Start the Windows app and enter the display's local IP address.
-2. If required, right-click the tray icon, select **Pair TV remote permission…**, and approve the request on the display.
-3. Left-click the tray icon to adjust brightness.
+1. Download the Windows x64 app from [Releases](https://github.com/dttutty/samsung-tizen-brightness/releases/latest).
+2. Connect the PC and display to the same LAN. In the display's **Network → Expert Settings**, enable **IP Remote**.
+3. Start the app and enter the display's IP. Right-click its tray icon → **Authorize IP Remote…**, then allow the request on the display once.
+4. Left-click the tray icon to adjust brightness. Windows light/dark mode and English, Chinese, Korean and Spanish UI are supported.
 
-Start-at-login is enabled from the first-run guide and can be changed from the tray icon's right-click menu. It starts silently in the background.
+Requires Windows 11 and .NET 10 Desktop Runtime. Verified on Samsung M7 / M70B (`LS43BM702UNXZA`). IP Remote backlight support varies by model; unsupported devices have no picture-menu fallback. See [Samsung's IP Control guide](https://image-us.samsung.com/SamsungUS/samsungbusiness/tv-ci-resources/Samsung-IP-Control.pdf).
 
-With the companion Tizen app installed, the controller wakes the display network and bridge first, then changes brightness directly without covering HDMI. When Tizen Studio is installed, it can also recover the bridge through a hidden SDB process without keeping Device Manager open. Without Developer Mode, it automatically falls back to simulated remote-control keys; the TV settings menu appears briefly while adjusting.
+## Behavior
 
-On Windows sleep, shutdown, or HDMI disconnect, the controller exits the TV bridge so the display can resume its normal HDMI no-signal auto-power-off behavior. The bridge is restored after resume or reconnection. If the PC loses power unexpectedly, the TV bridge exits itself after 30 seconds without the PC connection.
+- Brightness control only: no automatic power-on/off, Wake-on-LAN or countdowns.
+- Cable insertion/removal and Windows resume only refresh the connection status. The display's own no-signal standby remains unchanged.
+- Windows login startup is optional; it starts the tray app, not the display.
 
-<details>
-<summary><strong>Optional: install the Tizen bridge (Developer Mode)</strong></summary>
-
-1. Install [Tizen Studio](https://developer.samsung.com/smarttv/develop/tools/tizen-studio.html) and, in Package Manager → **Extension SDK**, install **TV Extensions** and **Samsung Certificate Extension**.
-2. On the display, open **Apps → App Settings**, enter `12345`, enable **Developer Mode**, enter the PC's LAN IP address, and reboot the display.
-3. In Tizen Studio, open **Tools → Device Manager → Remote Device Manager**, add the display's IP address, and switch the connection on.
-4. Open **Tools → Certificate Manager** and create **Samsung → TV** author and **Partner** distributor certificates. Include the display's DUID and back up the author certificate.
-5. Use **File → Import → Tizen → Tizen Project** to import `tizen/HDMIBrightnessBridge`, set the PC's LAN IPv4 address in `bridge.js`, then right-click the project and select **Run As → Tizen Web Application**.
-
-Allow the Windows app on private networks when Windows Firewall asks; the bridge connects to TCP port `8765`. If installation is denied, right-click the connected device in Device Manager and select **Permit to install applications**. See Samsung's official [TV device](https://developer.samsung.com/smarttv/develop/getting-started/using-sdk/tv-device.html), [SDK installation](https://developer.samsung.com/smarttv/develop/getting-started/setting-up-sdk/installing-tv-sdk.html), and [certificate](https://developer.samsung.com/smarttv/develop/getting-started/setting-up-sdk/creating-certificates.html) guides.
-
-</details>
-
-The pairing token is encrypted with Windows DPAPI and stored locally. No user address or token is included in this repository.
+Authorization is saved locally with Windows DPAPI, bound to the display address and a pinned TLS certificate. Ordinary clicks and automatic reconnects never request permission. No inbound bridge port is opened.
 
 ## Build
 
 ```powershell
 dotnet publish .\src\SamsungTizenBrightness\SamsungTizenBrightness.csproj -c Release -r win-x64 --self-contained false
+dotnet run --project .\tests\SamsungTizenBrightness.Tests -c Release
 ```
 
-The required AVInfo privilege is unavailable to Public certificates.
-
-> Unofficial community project, not affiliated with Samsung. It uses Samsung interfaces whose compatibility is not publicly guaranteed. Factory reset and service-menu operations are not implemented.
-
-## License
+Unofficial community project, not affiliated with Samsung. Interface compatibility is not guaranteed. No factory-reset or service-menu operations.
 
 [MIT](LICENSE)

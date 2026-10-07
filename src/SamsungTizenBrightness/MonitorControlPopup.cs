@@ -5,7 +5,7 @@ using System.Runtime.InteropServices;
 namespace SamsungTizenBrightness;
 
 /// <summary>
-/// Capability-driven Windows 11 style monitor-control flyout.  The bridge stays
+/// Windows 11 style brightness flyout. The IP Remote connection stays
 /// alive when the flyout is hidden; opening the flyout only refreshes the
 /// settings snapshot.
 /// </summary>
@@ -39,7 +39,6 @@ internal sealed class MonitorControlPopup : Form
     private bool _snapshotLoaded;
     private bool _mouseButtonsWereDown;
     private DateTime _outsideClickArmedAt;
-    private Task _remoteMenuCloseTask = Task.CompletedTask;
 
     public MonitorControlPopup(
         SamsungBrightnessSession session,
@@ -139,7 +138,7 @@ internal sealed class MonitorControlPopup : Form
 
     public async void OpenNearCursor()
     {
-        AppDiagnostics.Log($"open requested; visible={Visible}; connected={_connected}; bridge={_session.IsBridgeConnected}");
+        AppDiagnostics.Log($"open requested; visible={Visible}; connected={_connected}; ipRemote={_session.IsAvailable}");
         if (_closing)
             CancelClose();
 
@@ -156,13 +155,16 @@ internal sealed class MonitorControlPopup : Form
         _outsideClickArmedAt = DateTime.UtcNow.AddMilliseconds(250);
         _outsideClickTimer.Start();
 
-        // Paint the complete cached flyout before network, WebSocket or SDB
-        // recovery starts. Those operations can spend seconds timing out when
+        // Paint the complete cached flyout before network connection starts. Those operations can spend seconds timing out when
         // the PC is connected to a network without the display.
         await Task.Yield();
-        await _remoteMenuCloseTask;
         if (!Visible || _closing)
             return;
+        if (!_session.IsDisplayAttached)
+        {
+            ShowOffline(L.T("DisplayUnavailable"));
+            return;
+        }
 
         if (_connected is true || _session.IsAvailable)
         {
@@ -171,7 +173,7 @@ internal sealed class MonitorControlPopup : Form
         }
         else
         {
-            await WakeBridgeAsync();
+            await ConnectDisplayAsync();
         }
     }
 
@@ -194,9 +196,7 @@ internal sealed class MonitorControlPopup : Form
         _snapshotLoaded = false;
         if (_connected is true)
         {
-            _subtitle.Text = _session.IsFallbackMode
-                ? L.T("FallbackConnected")
-                : L.T("HdmiConnected");
+            _subtitle.Text = L.T("HdmiConnected");
             if (Visible)
                 _ = EnsureSessionAndSnapshotAsync();
         }
@@ -266,7 +266,7 @@ internal sealed class MonitorControlPopup : Form
         _overlay.Controls.AddRange([_overlayTitle, _overlayCommand, _overlayProgress]);
     }
 
-    private async Task WakeBridgeAsync()
+    private async Task ConnectDisplayAsync()
     {
         if (_waking || _closing || !Visible)
             return;
@@ -275,7 +275,7 @@ internal sealed class MonitorControlPopup : Form
         ShowLoadingShell(L.T("ConnectingDisplay"));
         try
         {
-            await _session.WakeBridgeAsync();
+            await _session.OpenAsync();
             if (!_session.IsAvailable)
                 throw new TimeoutException("无法建立显示器控制连接。");
 
@@ -316,9 +316,7 @@ internal sealed class MonitorControlPopup : Form
             BuildSettings(snapshot);
             AppDiagnostics.Log($"snapshot completed; capabilities={snapshot.Capabilities.Count}; values={snapshot.Values.Count}");
             _snapshotLoaded = true;
-            _subtitle.Text = _session.IsFallbackMode
-                ? L.T("FallbackConnected")
-                : L.T("HdmiConnected");
+            _subtitle.Text = L.T("HdmiConnected");
             _subtitle.ForeColor = FlyoutColors.Connected;
             HideOverlay();
         }
@@ -601,11 +599,7 @@ internal sealed class MonitorControlPopup : Form
                 return;
 
             _connected = connected;
-            _subtitle.Text = connected
-                ? _session.IsFallbackMode
-                    ? L.T("FallbackConnected")
-                    : L.T("HdmiConnected")
-                : L.T("ControlDisconnected");
+            _subtitle.Text = connected ? L.T("HdmiConnected") : L.T("ControlDisconnected");
             _subtitle.ForeColor = connected ? FlyoutColors.Connected : FlyoutColors.Error;
 
             if (_closing)
@@ -695,9 +689,7 @@ internal sealed class MonitorControlPopup : Form
         _outsideClickTimer.Stop();
         ShowOverlay(
             L.T("ClosingControl"),
-            _session.IsFallbackMode
-                ? "KEY_RETURN — 恢复电视画面"
-                : "HIDE — 保持显示器控制通道在线",
+            "HIDE — 保持显示器控制通道在线",
             busy: true);
         _closeTimer.Start();
     }
@@ -714,24 +706,8 @@ internal sealed class MonitorControlPopup : Form
     {
         _closeTimer.Stop();
         _outsideClickTimer.Stop();
-        bool closeRemoteMenu = _session.IsFallbackMode;
         Hide();
         _closing = false;
-        if (closeRemoteMenu)
-            _remoteMenuCloseTask = CloseRemoteMenuAsync();
-    }
-
-    private async Task CloseRemoteMenuAsync()
-    {
-        try
-        {
-            await _session.CloseAsync();
-        }
-        catch (Exception error)
-        {
-            AppDiagnostics.Log($"could not close remote fallback menu: {error.Message}");
-            await _session.AbortAsync();
-        }
     }
 
     private void PositionNearTray()
