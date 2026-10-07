@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 dttutty
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System.Globalization;
 
 namespace SamsungTizenBrightness;
@@ -67,6 +70,14 @@ internal static class L
 
     private static readonly Dictionary<string, string> English = new(StringComparer.Ordinal)
     {
+        ["FailureUnavailable"] = "Display currently unavailable",
+        ["FailureAuthorization"] = "Authorization required · right-click tray to authorize",
+        ["FailureNetwork"] = "Cannot reach display · check IP and network",
+        ["FailureUnsupported"] = "This display does not support brightness control",
+        ["FailureRemote"] = "IP Remote rejected the request",
+        ["FailureInvalidReply"] = "Invalid response from display",
+        ["FailureNetworkHelp"] = "Check that the display is on, IP Remote is enabled, and both devices are on the same LAN. Check the saved IP in Connection settings.",
+        ["FailureUnsupportedHelp"] = "This display's IP Remote does not support backlightControl. Compatibility varies by model and firmware.",
         ["IpControlPairRequired"] = "Enable IP Remote on the display, then right-click the tray icon and choose Authorize IP Remote. Normal clicks never request permission.",
         ["IpControlRpcFailed"] = "IP Remote rejected the request (code {0}).",
         ["IpControlInvalidReply"] = "The display returned an invalid IP Remote response.",
@@ -120,10 +131,10 @@ internal static class L
         ["SetupTitle"] = "Samsung Tizen Brightness · Connection settings",
         ["SetupHeading"] = "Connect a Samsung display",
         ["SetupIntro"] = "Control hardware backlight directly over IP Remote. No Developer Mode or TV app is needed.",
-        ["SetupIpLabel"] = "1. Enter the display IP (Display: Settings → General → Network → Network Status → IP Settings)",
+        ["SetupIpLabel"] = "1. Display IP: Settings → All Settings → Connection → Network → Network Status → IP Settings",
         ["SetupIpExample"] = "For example, 192.168.1.100",
         ["SetupIpRemoteHeading"] = "2. Enable IP Remote on the display",
-        ["SetupIpRemoteBody"] = "Settings → Network → Expert Settings: enable IP Remote.\nThen right-click the tray icon, select Authorize IP Remote, and allow the request on the display once.",
+        ["SetupIpRemoteBody"] = "Settings → All Settings → Connection → Network → Expert Settings → IP Remote → Enable.\nOlder TVs: Settings → General → Network → Expert Settings. If unavailable, check Power On with Mobile there.\nThen right-click the tray icon → Authorize IP Remote, and allow the request on the display once.",
         ["SetupStartup"] = "Start with Windows sign-in (tray background only)",
         ["SaveContinue"] = "Save and continue",
         ["Cancel"] = "Cancel",
@@ -134,6 +145,14 @@ internal static class L
 
     private static readonly Dictionary<string, string> Chinese = new(English, StringComparer.Ordinal)
     {
+        ["FailureUnavailable"] = "显示器当前不可用",
+        ["FailureAuthorization"] = "需要授权 · 右键托盘选择授权 IP Remote",
+        ["FailureNetwork"] = "无法连接显示器 · 请检查 IP 和网络",
+        ["FailureUnsupported"] = "此显示器不支持 IP Remote 亮度控制",
+        ["FailureRemote"] = "IP Remote 拒绝了请求",
+        ["FailureInvalidReply"] = "显示器返回了无效响应",
+        ["FailureNetworkHelp"] = "请确认显示器已开机、IP Remote 已开启，电脑与显示器在同一局域网，并在连接设置中检查保存的 IP。",
+        ["FailureUnsupportedHelp"] = "此显示器的 IP Remote 不支持 backlightControl；兼容性取决于型号和固件。",
         ["IpControlPairRequired"] = "请开启显示器的 IP Remote，然后右键托盘图标选择“授权 IP Remote…”。普通点击不会申请权限。",
         ["IpControlRpcFailed"] = "IP Remote 拒绝请求（错误码 {0}）。",
         ["IpControlInvalidReply"] = "显示器返回了无效的 IP Remote 响应。",
@@ -152,7 +171,7 @@ internal static class L
         ["MinimumBrightness"] = "最小亮度", ["MaximumBrightness"] = "最大亮度",
         ["SetMinimumBrightness"] = "设为最小亮度", ["SetMaximumBrightness"] = "设为最大亮度",
         ["ClickAgainConfirm"] = "再次点击确认", ["Mute"] = "静音", ["Unmute"] = "取消静音",
-        ["ClosingControl"] = "正在收起控制窗口…", ["Language"] = "语言",
+        ["ClosingControl"] = "正在收起控制窗口…", ["Language"] = "Language",
         ["OpenBrightness"] = "打开亮度调节", ["ConnectionSettings"] = "连接设置…",
         ["StartWithWindows"] = "随 Windows 登录启动", ["ReconnectDisplay"] = "重新连接显示器",
         ["PairRemote"] = "授权 IP Remote…", ["Exit"] = "退出",
@@ -167,9 +186,9 @@ internal static class L
         ["StartupFailed"] = "无法修改 Windows 启动项：\n{0}",
         ["SetupTitle"] = "Samsung Tizen 亮度 · 连接设置", ["SetupHeading"] = "首次连接 Samsung 显示器",
         ["SetupIntro"] = "通过 IP Remote 直接调节硬件背光，不需要开发者模式或电视端应用。",
-        ["SetupIpLabel"] = "1. 输入显示器 IP（电视：设置 → 常规 → 网络 → 网络状态 → IP 设置）",
+        ["SetupIpLabel"] = "1. 显示器 IP：设置 → 所有设置 → 连接 → 网络 → 网络状态 → IP 设置",
         ["SetupIpExample"] = "例如 192.168.1.100", ["SetupIpRemoteHeading"] = "2. 在显示器上开启 IP Remote",
-        ["SetupIpRemoteBody"] = "设置 → 网络 → 专家设置：开启 IP Remote。\n保存后右键托盘图标，选择“授权 IP Remote…”，在显示器上允许一次即可。",
+        ["SetupIpRemoteBody"] = "设置 → 所有设置 → 连接 → 网络 → 专家设置 → IP Remote → 启用（Enable）。\n旧款电视：设置 → 常规 → 网络 → 专家设置；若不可用，请检查同页的“通过移动设备开机”。\n保存后右键托盘图标 → 授权 IP Remote，在显示器上允许一次即可。",
         ["SetupStartup"] = "随 Windows 登录自动启动（仅进入托盘后台）", ["SaveContinue"] = "保存并继续",
         ["Cancel"] = "取消", ["InvalidHost"] = "请输入有效的 IP 地址或主机名。",
         ["StartupSaveWarning"] = "显示器地址会正常保存，但无法修改 Windows 启动项：\n{0}",
@@ -178,6 +197,14 @@ internal static class L
 
     private static readonly Dictionary<string, string> Korean = new(English, StringComparer.Ordinal)
     {
+        ["FailureUnavailable"] = "디스플레이를 사용할 수 없음",
+        ["FailureAuthorization"] = "승인 필요 · 트레이를 오른쪽 클릭하세요",
+        ["FailureNetwork"] = "연결 실패 · IP와 네트워크를 확인하세요",
+        ["FailureUnsupported"] = "이 디스플레이는 밝기 제어를 지원하지 않음",
+        ["FailureRemote"] = "IP Remote가 요청을 거부함",
+        ["FailureInvalidReply"] = "디스플레이 응답이 올바르지 않음",
+        ["FailureNetworkHelp"] = "디스플레이 전원과 IP Remote를 켜고 두 기기가 같은 LAN에 있는지 확인하세요. 연결 설정에서 저장된 IP도 확인하세요.",
+        ["FailureUnsupportedHelp"] = "이 디스플레이의 IP Remote는 backlightControl을 지원하지 않습니다. 호환성은 모델과 펌웨어에 따라 다릅니다.",
         ["IpControlPairRequired"] = "디스플레이에서 IP Remote를 켠 후 트레이를 오른쪽 클릭하여 IP Remote 승인을 선택하세요. 일반 클릭은 권한을 요청하지 않습니다。",
         ["IpControlRpcFailed"] = "IP Remote가 요청을 거부했습니다(코드 {0}).",
         ["IpControlInvalidReply"] = "디스플레이의 IP Remote 응답이 올바르지 않습니다.",
@@ -196,7 +223,7 @@ internal static class L
         ["MinimumBrightness"] = "최소 밝기", ["MaximumBrightness"] = "최대 밝기",
         ["SetMinimumBrightness"] = "최소 밝기로 설정", ["SetMaximumBrightness"] = "최대 밝기로 설정",
         ["ClickAgainConfirm"] = "확인하려면 다시 클릭", ["Mute"] = "음소거", ["Unmute"] = "음소거 해제",
-        ["ClosingControl"] = "제어 창 닫는 중…", ["Language"] = "언어",
+        ["ClosingControl"] = "제어 창 닫는 중…", ["Language"] = "Language",
         ["OpenBrightness"] = "밝기 조절 열기", ["ConnectionSettings"] = "연결 설정…",
         ["StartWithWindows"] = "Windows 로그인 시 시작", ["ReconnectDisplay"] = "디스플레이 다시 연결",
         ["PairRemote"] = "IP Remote 승인…", ["Exit"] = "종료",
@@ -211,9 +238,9 @@ internal static class L
         ["StartupFailed"] = "Windows 시작 설정을 변경할 수 없습니다:\n{0}",
         ["SetupTitle"] = "Samsung Tizen 밝기 · 연결 설정", ["SetupHeading"] = "Samsung 디스플레이 연결",
         ["SetupIntro"] = "IP Remote로 백라이트를 직접 조절합니다. 개발자 모드나 TV 앱이 필요하지 않습니다.",
-        ["SetupIpLabel"] = "1. 디스플레이 IP 입력 (설정 → 일반 → 네트워크 → 네트워크 상태 → IP 설정)",
+        ["SetupIpLabel"] = "1. 디스플레이 IP: 설정 → 전체 설정 → 연결 → 네트워크 → 네트워크 상태 → IP 설정",
         ["SetupIpExample"] = "예: 192.168.1.100", ["SetupIpRemoteHeading"] = "2. 디스플레이에서 IP Remote 활성화",
-        ["SetupIpRemoteBody"] = "설정 → 네트워크 → 전문가 설정에서 IP Remote를 켜세요.\n저장 후 트레이를 오른쪽 클릭하여 IP Remote 승인을 선택하고 디스플레이에서 한 번 허용하세요.",
+        ["SetupIpRemoteBody"] = "설정 → 전체 설정 → 연결 → 네트워크 → 전문가 설정 → IP Remote → 사용(Enable).\n이전 TV: 설정 → 일반 → 네트워크 → 전문가 설정. 사용할 수 없으면 모바일로 전원 켜기도 확인하세요.\n저장 후 트레이를 오른쪽 클릭 → IP Remote 승인, 디스플레이에서 한 번 허용하세요.",
         ["SetupStartup"] = "Windows 로그인 시 시작(트레이 백그라운드만)", ["SaveContinue"] = "저장하고 계속",
         ["Cancel"] = "취소", ["InvalidHost"] = "올바른 IP 주소 또는 호스트 이름을 입력하세요.",
         ["StartupSaveWarning"] = "디스플레이 주소는 저장되었지만 Windows 시작 설정을 변경할 수 없습니다:\n{0}",
@@ -222,6 +249,14 @@ internal static class L
 
     private static readonly Dictionary<string, string> Spanish = new(English, StringComparer.Ordinal)
     {
+        ["FailureUnavailable"] = "Pantalla no disponible",
+        ["FailureAuthorization"] = "Autoriza IP Remote desde la bandeja",
+        ["FailureNetwork"] = "Sin conexión · comprueba IP y red",
+        ["FailureUnsupported"] = "Esta pantalla no admite control de brillo",
+        ["FailureRemote"] = "IP Remote rechazó la solicitud",
+        ["FailureInvalidReply"] = "Respuesta de pantalla no válida",
+        ["FailureNetworkHelp"] = "Enciende la pantalla y activa IP Remote. Conecta ambos dispositivos a la misma LAN y comprueba la IP guardada en Configuración de conexión.",
+        ["FailureUnsupportedHelp"] = "IP Remote de esta pantalla no admite backlightControl. La compatibilidad depende del modelo y el firmware.",
         ["IpControlPairRequired"] = "Activa IP Remote y autorízalo desde el menú de la bandeja. Los clics normales no solicitan permiso.",
         ["IpControlRpcFailed"] = "IP Remote rechazó la solicitud (código {0}).",
         ["IpControlInvalidReply"] = "La respuesta de IP Remote no es válida.",
@@ -240,7 +275,7 @@ internal static class L
         ["MinimumBrightness"] = "Brillo mínimo", ["MaximumBrightness"] = "Brillo máximo",
         ["SetMinimumBrightness"] = "Establecer brillo mínimo", ["SetMaximumBrightness"] = "Establecer brillo máximo",
         ["ClickAgainConfirm"] = "Haz clic de nuevo para confirmar", ["Mute"] = "Silenciar", ["Unmute"] = "Activar sonido",
-        ["ClosingControl"] = "Cerrando el control…", ["Language"] = "Idioma",
+        ["ClosingControl"] = "Cerrando el control…", ["Language"] = "Language",
         ["OpenBrightness"] = "Abrir control de brillo", ["ConnectionSettings"] = "Configuración de conexión…",
         ["StartWithWindows"] = "Iniciar al entrar en Windows", ["ReconnectDisplay"] = "Reconectar pantalla",
         ["PairRemote"] = "Autorizar IP Remote…", ["Exit"] = "Salir",
@@ -255,9 +290,9 @@ internal static class L
         ["StartupFailed"] = "No se pudo cambiar el inicio de Windows:\n{0}",
         ["SetupTitle"] = "Brillo Samsung Tizen · Conexión", ["SetupHeading"] = "Conectar una pantalla Samsung",
         ["SetupIntro"] = "Controla la retroiluminación mediante IP Remote. No requiere modo desarrollador ni una app de TV.",
-        ["SetupIpLabel"] = "1. Introduce la IP de la pantalla (Ajustes → General → Red → Estado de red → Configuración IP)",
+        ["SetupIpLabel"] = "1. IP: Ajustes → Todos los ajustes → Conexión → Red → Estado de red → Configuración IP",
         ["SetupIpExample"] = "Por ejemplo, 192.168.1.100", ["SetupIpRemoteHeading"] = "2. Activa IP Remote en la pantalla",
-        ["SetupIpRemoteBody"] = "Ajustes → Red → Configuración avanzada: activa IP Remote.\nDespués, autoriza IP Remote desde el menú de la bandeja y permite la solicitud en la pantalla.",
+        ["SetupIpRemoteBody"] = "Ajustes → Todos los ajustes → Conexión → Red → Configuración avanzada → IP Remote → Activar (Enable).\nTV antiguos: Ajustes → General → Red → Configuración avanzada. Si no está disponible, revisa Encender con móvil.\nDespués, autoriza IP Remote desde la bandeja y permite la solicitud una vez en la pantalla.",
         ["SetupStartup"] = "Iniciar con Windows (solo en segundo plano)", ["SaveContinue"] = "Guardar y continuar",
         ["Cancel"] = "Cancelar", ["InvalidHost"] = "Introduce una dirección IP o un nombre de host válido.",
         ["StartupSaveWarning"] = "La dirección se guardó, pero no se pudo cambiar el inicio de Windows:\n{0}",

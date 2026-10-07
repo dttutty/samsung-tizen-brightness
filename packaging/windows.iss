@@ -53,6 +53,7 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 [Files]
 Source: "{#PublishDir}\Samsung Tizen 亮度.exe"; DestDir: "{app}"; DestName: "Samsung.Tizen.Brightness.exe"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\NOTICE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.zh-CN.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.ko.md"; DestDir: "{app}"; Flags: ignoreversion

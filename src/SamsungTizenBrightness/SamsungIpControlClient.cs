@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 dttutty
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System.Net;
 using System.Net.Http;
 using System.Net.Security;
@@ -133,7 +136,7 @@ internal sealed class SamsungIpControlClient : IDisposable
         TimeSpan timeout, CancellationToken cancellationToken, bool pair = false)
     {
         if (!pair && !HasAuthorization)
-            throw new InvalidOperationException(L.T("IpControlPairRequired"));
+            throw new IpControlAuthorizationRequiredException();
         var envelope = new Dictionary<string, object>
         {
             ["jsonrpc"] = "2.0",

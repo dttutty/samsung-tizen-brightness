@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 dttutty
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System.ComponentModel;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
@@ -70,7 +73,9 @@ internal sealed class MonitorControlPopup : Form
         _title.Location = new Point(20, 15);
 
         _subtitle.Text = L.T("DetectingConnection");
-        _subtitle.AutoSize = true;
+        _subtitle.AutoSize = false;
+        _subtitle.AutoEllipsis = true;
+        _subtitle.Size = new Size(FlyoutWidth - 42, 22);
         _subtitle.BackColor = Color.Transparent;
         _subtitle.ForeColor = FlyoutColors.SecondaryText;
         _subtitle.Font = new Font(Font.FontFamily, 8.5F);
@@ -162,7 +167,7 @@ internal sealed class MonitorControlPopup : Form
             return;
         if (!_session.IsDisplayAttached)
         {
-            ShowOffline(L.T("DisplayUnavailable"));
+            ShowOffline();
             return;
         }
 
@@ -202,7 +207,7 @@ internal sealed class MonitorControlPopup : Form
         }
         else
         {
-            _subtitle.Text = L.T("DisplayUnavailable");
+            ShowOffline(_session.LastFailure);
         }
     }
 
@@ -285,7 +290,7 @@ internal sealed class MonitorControlPopup : Form
         catch (Exception ex)
         {
             if (Visible && !_closing)
-                ShowOffline($"无法连接显示器：{ex.Message}");
+                ShowOffline(ex);
         }
         finally
         {
@@ -317,6 +322,8 @@ internal sealed class MonitorControlPopup : Form
             AppDiagnostics.Log($"snapshot completed; capabilities={snapshot.Capabilities.Count}; values={snapshot.Values.Count}");
             _snapshotLoaded = true;
             _subtitle.Text = L.T("HdmiConnected");
+            _themeToolTip.SetToolTip(_subtitle, null);
+            _subtitle.AccessibleDescription = null;
             _subtitle.ForeColor = FlyoutColors.Connected;
             HideOverlay();
         }
@@ -325,7 +332,7 @@ internal sealed class MonitorControlPopup : Form
             AppDiagnostics.Log($"snapshot failed; {ex.GetType().Name}: {ex.Message}");
             _snapshotLoaded = false;
             if (Visible && !_closing)
-                ShowOffline($"无法读取显示器设置：{ex.Message}");
+                ShowOffline(ex);
         }
         finally
         {
@@ -426,6 +433,8 @@ internal sealed class MonitorControlPopup : Form
         foreach (Control control in _settingsPanel.Controls)
             control.Enabled = false;
         _subtitle.Text = status;
+        _themeToolTip.SetToolTip(_subtitle, null);
+        _subtitle.AccessibleDescription = null;
         _subtitle.ForeColor = FlyoutColors.SecondaryText;
         _overlay.Visible = false;
     }
@@ -610,7 +619,7 @@ internal sealed class MonitorControlPopup : Form
                 foreach (SettingCommandState state in _commands.Values)
                     state.Row.Enabled = false;
                 if (Visible)
-                    ShowOffline($"等待重新连接 {_host}");
+                    ShowOffline(_session.LastFailure);
                 _ = _session.AbortAsync();
             }
             else if (Visible)
@@ -661,13 +670,15 @@ internal sealed class MonitorControlPopup : Form
         _overlay.BringToFront();
     }
 
-    private void ShowOffline(string message)
+    private void ShowOffline(Exception? error = null)
     {
-        AppDiagnostics.Log(message);
+        AppDiagnostics.Log($"connection unavailable; kind={ConnectionFailure.Classify(error)}; {error?.Message}");
         BuildCachedBrightnessShell();
         foreach (Control control in _settingsPanel.Controls)
             control.Enabled = false;
-        _subtitle.Text = L.T("DisplayUnavailable");
+        _subtitle.Text = ConnectionFailure.Summary(error);
+        _themeToolTip.SetToolTip(_subtitle, ConnectionFailure.Guidance(error));
+        _subtitle.AccessibleDescription = ConnectionFailure.Guidance(error);
         _subtitle.ForeColor = FlyoutColors.Error;
         _overlay.Visible = false;
     }

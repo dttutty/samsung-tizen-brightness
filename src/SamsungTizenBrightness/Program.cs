@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 dttutty
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System.Net;
 using System.ComponentModel;
 using System.Drawing.Drawing2D;
@@ -7,7 +10,6 @@ using System.Management;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
-using System.Xml.Linq;
 using Microsoft.Win32;
 
 namespace SamsungTizenBrightness;
@@ -127,64 +129,9 @@ internal static class ConnectionSetupPrompt
 {
     public static string? Show(string? currentHost = null)
     {
-        using var dialog = new Form
-        {
-            Text = L.T("SetupTitle"),
-            ClientSize = new Size(620, 380),
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            MaximizeBox = false, MinimizeBox = false,
-            StartPosition = FormStartPosition.CenterScreen,
-            Font = new Font("Microsoft YaHei UI", 9F)
-        };
-        var title = new Label
-        {
-            Text = L.T("SetupHeading"), AutoSize = true,
-            Font = new Font(dialog.Font.FontFamily, 14F, FontStyle.Bold),
-            Location = new Point(22, 18)
-        };
-        var intro = new Label
-        {
-            Text = L.T("SetupIntro"), Size = new Size(574, 42), Location = new Point(24, 54)
-        };
-        var hostLabel = new Label
-        {
-            Text = L.T("SetupIpLabel"), AutoSize = true,
-            Font = new Font(dialog.Font, FontStyle.Bold), Location = new Point(24, 102)
-        };
-        var input = new TextBox
-        {
-            PlaceholderText = L.T("SetupIpExample"), Text = currentHost ?? string.Empty,
-            Location = new Point(25, 130), Size = new Size(570, 27)
-        };
-        var instructions = new GroupBox
-        {
-            Text = L.T("SetupIpRemoteHeading"),
-            Location = new Point(20, 174), Size = new Size(580, 117)
-        };
-        instructions.Controls.Add(new Label
-        {
-            Text = L.T("SetupIpRemoteBody"), Size = new Size(540, 82),
-            Location = new Point(18, 25)
-        });
-        var startWithWindows = new CheckBox
-        {
-            Text = L.T("SetupStartup"), AutoSize = true,
-            Checked = currentHost is null || StartupRegistration.IsEnabled(),
-            Location = new Point(24, 306)
-        };
-        var ok = new Button
-        {
-            Text = L.T("SaveContinue"), DialogResult = DialogResult.OK,
-            Location = new Point(388, 337), Size = new Size(104, 32)
-        };
-        var cancel = new Button
-        {
-            Text = L.T("Cancel"), DialogResult = DialogResult.Cancel,
-            Location = new Point(500, 337), Size = new Size(96, 32)
-        };
-        dialog.Controls.AddRange([title, intro, hostLabel, input, instructions, startWithWindows, ok, cancel]);
-        dialog.AcceptButton = ok;
-        dialog.CancelButton = cancel;
+        using Form dialog = CreateDialog(currentHost, currentHost is null || StartupRegistration.IsEnabled());
+        var input = (TextBox)dialog.Controls["DisplayHost"]!;
+        var startWithWindows = (CheckBox)dialog.Controls["StartWithWindows"]!;
         while (dialog.ShowDialog() == DialogResult.OK)
         {
             string host = input.Text.Trim();
@@ -203,6 +150,73 @@ internal static class ConnectionSetupPrompt
         }
         return null;
     }
+
+    // Pure UI construction, also used by offline layout regression tests.
+    internal static Form CreateDialog(string? currentHost, bool startupEnabled)
+    {
+        var dialog = new Form
+        {
+            Text = L.T("SetupTitle"),
+            ClientSize = new Size(620, 460),
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false, MinimizeBox = false,
+            StartPosition = FormStartPosition.CenterScreen,
+            Font = new Font("Microsoft YaHei UI", 9F)
+        };
+        var title = new Label
+        {
+            Text = L.T("SetupHeading"), AutoSize = true,
+            Font = new Font(dialog.Font.FontFamily, 14F, FontStyle.Bold),
+            Location = new Point(22, 18)
+        };
+        var intro = new Label
+        {
+            Text = L.T("SetupIntro"), Size = new Size(574, 42), Location = new Point(24, 54)
+        };
+        var hostLabel = new Label
+        {
+            Text = L.T("SetupIpLabel"), AutoSize = false, Size = new Size(574, 44),
+            Font = new Font(dialog.Font, FontStyle.Bold), Location = new Point(24, 102)
+        };
+        var input = new TextBox
+        {
+            Name = "DisplayHost",
+            PlaceholderText = L.T("SetupIpExample"), Text = currentHost ?? string.Empty,
+            Location = new Point(25, 150), Size = new Size(570, 27)
+        };
+        var instructions = new GroupBox
+        {
+            Text = L.T("SetupIpRemoteHeading"),
+            Location = new Point(20, 194), Size = new Size(580, 176)
+        };
+        instructions.Controls.Add(new Label
+        {
+            Name = "IpRemoteGuide",
+            Text = L.T("SetupIpRemoteBody"), Size = new Size(540, 140),
+            Location = new Point(18, 25)
+        });
+        var startWithWindows = new CheckBox
+        {
+            Name = "StartWithWindows",
+            Text = L.T("SetupStartup"), AutoSize = true,
+            Checked = startupEnabled,
+            Location = new Point(24, 384)
+        };
+        var ok = new Button
+        {
+            Text = L.T("SaveContinue"), DialogResult = DialogResult.OK,
+            Location = new Point(388, 420), Size = new Size(104, 32)
+        };
+        var cancel = new Button
+        {
+            Text = L.T("Cancel"), DialogResult = DialogResult.Cancel,
+            Location = new Point(500, 420), Size = new Size(96, 32)
+        };
+        dialog.Controls.AddRange([title, intro, hostLabel, input, instructions, startWithWindows, ok, cancel]);
+        dialog.AcceptButton = ok;
+        dialog.CancelButton = cancel;
+        return dialog;
+    }
 }
 
 internal static class StartupRegistration
@@ -215,21 +229,35 @@ internal static class StartupRegistration
 
     public static bool IsEnabled()
     {
-        if (TryReadTaskXml(out string taskXml) && TaskMatches(taskXml))
-            return true;
+        if (TryReadTaskXml(out string taskXml) && StartupPolicy.ReadTask(taskXml) is { } task)
+            return task.Enabled;
 
         return IsLegacyEnabled();
     }
 
     public static void MigrateLegacyIfNeeded()
     {
-        if (!IsLegacyEnabled())
-            return;
-
         try
         {
-            SetEnabled(true);
-            AppDiagnostics.Log("startup registration migrated from Run key to scheduled task");
+            string taskXml = "";
+            StartupTaskState? task = TryReadTaskXml(out taskXml) ? StartupPolicy.ReadTask(taskXml) : null;
+            if (!StartupPolicy.ShouldMigrate(task, IsLegacyEnabled(), Application.ExecutablePath))
+                return;
+
+            if (task is not null)
+            {
+                // Retarget only the executable; preserve host backup, user, retry
+                // policy and every other setting from the existing registration.
+                WriteTask(StartupPolicy.RetargetTask(taskXml, Application.ExecutablePath));
+                AppDiagnostics.Log("startup task retargeted to current installation");
+            }
+            else
+            {
+                // Never overwrite a same-name task belonging to something else.
+                if (!string.IsNullOrWhiteSpace(taskXml)) return;
+                SetEnabled(true);
+                AppDiagnostics.Log("startup registration migrated from Run key to scheduled task");
+            }
         }
         catch (Exception error)
         {
@@ -244,7 +272,7 @@ internal static class StartupRegistration
     {
         using RegistryKey? runKey = Registry.CurrentUser.OpenSubKey(RunKeyPath);
         string? command = runKey?.GetValue(ValueName) as string;
-        if (!string.Equals(command, BuildCommand(), StringComparison.OrdinalIgnoreCase))
+        if (!StartupPolicy.IsLegacyCommand(command))
             return false;
 
         using RegistryKey? approvalKey = Registry.CurrentUser.OpenSubKey(ApprovalKeyPath);
@@ -280,7 +308,7 @@ internal static class StartupRegistration
 
     public static void RefreshHostBackup(string host)
     {
-        if (TryReadTaskXml(out _))
+        if (TryReadTaskXml(out string xml) && StartupPolicy.ReadTask(xml) is { Enabled: true })
             CreateOrUpdateTask(host);
     }
 
@@ -348,6 +376,11 @@ internal static class StartupRegistration
             </Task>
             """;
 
+        WriteTask(xml);
+    }
+
+    private static void WriteTask(string xml)
+    {
         string temporaryXml = Path.Combine(
             Path.GetTempPath(),
             $"SamsungTizenBrightness-{Guid.NewGuid():N}.xml");
@@ -381,27 +414,6 @@ internal static class StartupRegistration
         return result.ExitCode == 0 && !string.IsNullOrWhiteSpace(xml);
     }
 
-    private static bool TaskMatches(string xml)
-    {
-        try
-        {
-            XDocument document = XDocument.Parse(xml);
-            string? enabled = document.Descendants()
-                .FirstOrDefault(element => element.Name.LocalName == "Enabled")?.Value;
-            string? command = document.Descendants()
-                .FirstOrDefault(element => element.Name.LocalName == "Command")?.Value;
-            string? arguments = document.Descendants()
-                .FirstOrDefault(element => element.Name.LocalName == "Arguments")?.Value;
-            return !string.Equals(enabled, "false", StringComparison.OrdinalIgnoreCase) &&
-                   string.Equals(command, Application.ExecutablePath, StringComparison.OrdinalIgnoreCase) &&
-                   arguments?.Trim().StartsWith("--startup", StringComparison.OrdinalIgnoreCase) == true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
     private static ProcessResult RunSchtasks(IEnumerable<string> arguments)
     {
         var start = new System.Diagnostics.ProcessStartInfo
@@ -415,16 +427,7 @@ internal static class StartupRegistration
         foreach (string argument in arguments)
             start.ArgumentList.Add(argument);
 
-        using System.Diagnostics.Process process = System.Diagnostics.Process.Start(start)
-            ?? throw new IOException("无法启动 Windows 任务计划程序命令。");
-        string standardOutput = process.StandardOutput.ReadToEnd();
-        string standardError = process.StandardError.ReadToEnd();
-        if (!process.WaitForExit(10_000))
-        {
-            try { process.Kill(entireProcessTree: true); } catch { }
-            throw new IOException("Windows 任务计划程序响应超时。");
-        }
-        return new ProcessResult(process.ExitCode, standardOutput, standardError);
+        return BoundedProcess.RunAsync(start, TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
     }
 
     private static string DescribeSchtasksFailure(string action, ProcessResult result)
@@ -437,10 +440,6 @@ internal static class StartupRegistration
             : $"{action}失败：{detail}";
     }
 
-    private sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError);
-
-    private static string BuildCommand()
-        => $"\"{Application.ExecutablePath}\" --startup";
 }
 
 internal sealed class TrayContext : ApplicationContext
@@ -455,6 +454,7 @@ internal sealed class TrayContext : ApplicationContext
     private readonly ToolStripMenuItem _reconnectItem;
     private readonly ToolStripMenuItem _pairItem;
     private readonly ToolStripMenuItem _languageItem;
+    private readonly Bitmap _languageIcon;
     private readonly ToolStripMenuItem _exitItem;
     private readonly Icon _appIcon;
     private readonly Icon _offlineIcon;
@@ -494,7 +494,8 @@ internal sealed class TrayContext : ApplicationContext
         _startWithWindowsItem.Click += (_, _) => ToggleStartWithWindows();
         _reconnectItem = new ToolStripMenuItem(L.T("ReconnectDisplay"), null, async (_, _) => await ReconnectDisplayAsync());
         _pairItem = new ToolStripMenuItem(L.T("PairRemote"), null, async (_, _) => await PairRemoteAsync());
-        _languageItem = new ToolStripMenuItem(L.T("Language"));
+        _languageIcon = IconVisuals.CreateGlobe();
+        _languageItem = new ToolStripMenuItem(L.T("Language"), _languageIcon);
         foreach (UiLanguage language in Enum.GetValues<UiLanguage>())
         {
             var languageOption = new ToolStripMenuItem(L.LanguageName(language))
@@ -761,6 +762,7 @@ internal sealed class TrayContext : ApplicationContext
         await _popup.ShutdownAsync();
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
+        _languageIcon.Dispose();
         _offlineIcon.Dispose();
         _appIcon.Dispose();
         _trayRegistrationTimer.Dispose();
@@ -772,6 +774,22 @@ internal sealed class TrayContext : ApplicationContext
 
 internal static class IconVisuals
 {
+    // Code-drawn globe: stays legible in the menu image column and does not
+    // depend on emoji-font availability or the selected interface language.
+    internal static Bitmap CreateGlobe()
+    {
+        var bitmap = new Bitmap(16, 16);
+        using Graphics graphics = Graphics.FromImage(bitmap);
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using var pen = new Pen(SystemColors.MenuText, 1.2F);
+        graphics.DrawEllipse(pen, 1.5F, 1.5F, 13F, 13F);
+        graphics.DrawEllipse(pen, 4.5F, 1.5F, 7F, 13F);
+        graphics.DrawLine(pen, 1.5F, 8F, 14.5F, 8F);
+        graphics.DrawArc(pen, 1.5F, 4.3F, 13F, 3.7F, 0, 180);
+        graphics.DrawArc(pen, 1.5F, 8F, 13F, 3.7F, 180, 180);
+        return bitmap;
+    }
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool DestroyIcon(IntPtr iconHandle);
 
@@ -836,6 +854,7 @@ internal sealed class SamsungBrightnessSession : IAsyncDisposable
     private readonly CancellationTokenSource _shutdown = new();
     private int _initialized;
     private int _available;
+    private Exception? _lastFailure;
     private bool _disposed;
 
     public SamsungBrightnessSession(string host, int currentBrightness)
@@ -849,6 +868,7 @@ internal sealed class SamsungBrightnessSession : IAsyncDisposable
     public int CurrentBrightness { get; private set; }
     public bool IsDisplayAttached { get; set; }
     public bool IsAvailable => Volatile.Read(ref _available) == 1;
+    public Exception? LastFailure => Volatile.Read(ref _lastFailure);
     public bool IsOpen => Volatile.Read(ref _initialized) == 1 && IsAvailable;
     public event Action<string, string>? ProgressChanged;
     public event Action<bool>? AvailabilityChanged;
@@ -864,13 +884,14 @@ internal sealed class SamsungBrightnessSession : IAsyncDisposable
         }
         catch (Exception error) when (error is not OperationCanceledException || !linked.IsCancellationRequested)
         {
-            MarkUnavailable();
+            MarkUnavailable(error);
         }
         finally { _gate.Release(); }
     }
 
-    public void MarkUnavailable()
+    public void MarkUnavailable(Exception? error = null)
     {
+        Volatile.Write(ref _lastFailure, error);
         Volatile.Write(ref _initialized, 0);
         if (Interlocked.Exchange(ref _available, 0) == 1)
             AvailabilityChanged?.Invoke(false);
@@ -878,6 +899,7 @@ internal sealed class SamsungBrightnessSession : IAsyncDisposable
 
     private void MarkAvailable()
     {
+        Volatile.Write(ref _lastFailure, null);
         if (Interlocked.Exchange(ref _available, 1) == 0)
             AvailabilityChanged?.Invoke(true);
     }
@@ -902,7 +924,7 @@ internal sealed class SamsungBrightnessSession : IAsyncDisposable
             await ReadBrightnessAsync(_shutdown.Token);
             AppDiagnostics.Log("IP Remote paired; authorization encrypted and certificate pinned");
         }
-        catch { MarkUnavailable(); throw; }
+        catch (Exception error) { MarkUnavailable(error); throw; }
         finally { _gate.Release(); }
     }
 
@@ -915,7 +937,7 @@ internal sealed class SamsungBrightnessSession : IAsyncDisposable
             await ReadBrightnessAsync(_shutdown.Token);
             Volatile.Write(ref _initialized, 1);
         }
-        catch { MarkUnavailable(); throw; }
+        catch (Exception error) { MarkUnavailable(error); throw; }
         finally { _gate.Release(); }
     }
 
@@ -930,7 +952,7 @@ internal sealed class SamsungBrightnessSession : IAsyncDisposable
             LocalState.SaveBrightness(CurrentBrightness);
             AppDiagnostics.Log($"IP Remote backlight set; value={CurrentBrightness}");
         }
-        catch { MarkUnavailable(); throw; }
+        catch (Exception error) { MarkUnavailable(error); throw; }
         finally { _gate.Release(); }
     }
 

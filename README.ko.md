@@ -31,4 +31,4 @@ dotnet run --project .\tests\SamsungTizenBrightness.Tests -c Release
 
 Samsung과 무관한 비공식 커뮤니티 프로젝트입니다. 공장 초기화나 서비스 메뉴 작업은 포함하지 않습니다.
 
-[MIT](LICENSE)
+Copyright © 2026 dttutty · [GPL-3.0-only](LICENSE)

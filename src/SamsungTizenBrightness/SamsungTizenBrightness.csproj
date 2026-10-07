@@ -15,6 +15,8 @@
     <Version>0.9.1</Version>
     <AssemblyTitle>Samsung Tizen Brightness</AssemblyTitle>
     <Authors>dttutty</Authors>
+    <Copyright>Copyright © 2026 dttutty</Copyright>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
     <Description>Windows tray brightness controller for Samsung Tizen displays</Description>
   </PropertyGroup>
 
